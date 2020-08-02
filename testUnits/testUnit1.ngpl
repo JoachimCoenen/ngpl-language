@@ -1,0 +1,160 @@
+unit Test
+
+func isPrime(number: Int) -> Bool {
+    var i = 2
+    while i < number - 1 do {
+        if number % i == 0 do {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+//func checkSinglePrime() {
+//    print("please enter a number")
+//    var number = Int(readln())
+//    print("checking...")
+//
+//    if isPrime(number) do {
+//        print(String(number) + " is a prime. Huraaay!")
+//    else
+//        print(String(number) + " is not a prime.")
+//    }
+//}
+
+var maxNumber = 10000 // 10_000 
+
+func checkAllNumbersUpToX() {
+    print("please enter a number")
+	print(maxNumber)
+    print("checking...")
+    let imaxNumber = maxNumber
+    var n = 2
+    while n <= imaxNumber do {
+        if isPrime(n) do {
+            ///(String(n) + "    prime!")
+        else
+           // (String(n) + "    --")
+        }
+        
+        n = n + 1
+    }
+
+}
+
+checkAllNumbersUpToX()
+/*
+print("please enter a number")
+maxNumber = Int(readln())
+checkAllNumbersUpToX()
+if isPrime(maxNumber) do {
+	print("lastNumberIsPrime")
+else
+	print("What have you done?!")
+}
+
+/*
+func fib(i: Int) -> Int {
+	if i == 1 or i == 0 do {
+		return 1
+	}
+	
+	return fib(i-1) + fib(i-2) 
+}
+
+func generateAllFibsUpToX() {
+	print("please enter a number")
+
+	var n = 20                       
+
+	var i = 0
+	while i <= n do {
+		print("fib(" + String(i) + ") = " + String(fib(i)))
+		i = i + 1
+	}
+}
+
+
+type Point = struct { 
+	var x: Int var y: Int var z: Int 
+	func str() -> String {
+		return "Pointy(" + 
+			String(self.x) + ", " + 
+			String(self.y) + ", " + 
+			String(self.z) + 
+		")"
+	}
+}
+
+func Point(x: Int, y: Int, z: Int) -> Point {
+	var p: Point
+	p.x = x
+	p.y = y
+	p.z = z
+	return p
+}
+
+
+
+/*
+func String(p: Point) -> String {
+	let x = p.x
+	let y = p.y
+	let z = p.z
+	return "Point(" + String(x) + ", " + String(y) + String(z) + ")"
+}
+/ * /
+
+func String(p: Point) -> String {
+	return "Point(" + String(p.x) + ", " + String(p.y) + ", " + String(p.z) + ")"
+}
+
+func print(p: Point) {
+	print(String(p))
+}
+
+
+var point: Point = Point(8, 7, 6)
+
+print(point.str())
+
+let z1 = point.z
+let y1 = point.y
+let x1 = point.x
+print(x1)
+print(y1)
+print(z1)
+let point2 = point
+print(point2)
+
+
+
+
+type Rect = struct {
+	var topLeft: Point
+	var bottomRight: Point
+	
+	func str() -> String {
+		return "Rect(" + 
+			self.topLeft.str() + ", " + 
+			self.bottomRight.str() + 
+		")"
+	}
+}
+
+func Rect(topLeft: Point, bottomRight: Point) -> Rect {
+	var p: Rect
+	p.topLeft = topLeft
+	p.bottomRight = bottomRight
+	return p
+}
+
+print("")
+print("++++ Rect ++++")
+
+var rect: Rect = Rect(point, Point(10, 11, 12))
+
+print(rect.str())
+print("++++ END ++++")
+*/

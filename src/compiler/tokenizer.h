@@ -82,7 +82,11 @@ public:
 	void readString();
 	void readSeparator();
 	void readOperator();
-	void skipWhitespacesIfAny();
+	void skipWhitespacesAndCommentsIfAny();
+	bool handleSingleNewLineIfAny();
+	void skipWhitespaces();
+	void skipLineComment();
+	void skipBlockComment();
 
 	// Character Categories:
 	bool isLetter(char c) const;

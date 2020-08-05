@@ -15,7 +15,7 @@ enum class ReferenceMode {
 	HEAP_REF,   // _address is relAddr of addr of value in heap				// aka "pointer to a value in heap "
 };
 
-class Scope;
+PTRS_FOR_CLASS(Scope)
 
 PTRS_FOR_CLASS(Variable)
 class Variable

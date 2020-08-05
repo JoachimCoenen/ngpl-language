@@ -16,7 +16,7 @@ class WriterObjectABC;
 
 namespace ngpl {
 
-struct Scope;
+PTRS_FOR_CLASS(Scope)
 
 PTRS_FOR_CLASS(Type)
 class Type: public InstructionsContainer, public Member
@@ -26,8 +26,8 @@ public:
 	Type(const std::string& name, const std::string& qualifier, uint64_t fixedSize, bool isBasic, bool isFinished = false);
 	//Type(std::string&& name, uint64_t fixedSize, bool isBasic, bool isFinished = false);
 
-	cat::OwningPtr<Scope>& scope() { return _scope; }
-	cat::WeakPtr<const Scope> scope() const { return _scope.getRaw(); }
+	ScopePtr& scope() { return _scope; }
+	ScopeCWeakPtr scope() const { return _scope.getRaw(); }
 	bool isBasic() const { return _isBasic; }
 	uint64_t& fixedSize() { return _fixedSize; }
 	uint64_t fixedSize() const { return _fixedSize; }
@@ -38,7 +38,7 @@ public:
 	cat::WriterObjectABC& print(cat::WriterObjectABC& s) const override;
 
 protected:
-	cat::OwningPtr<Scope> _scope;
+	ScopePtr _scope;
 	uint64_t _fixedSize;
 	bool _isBasic;
 	bool _isFinished;

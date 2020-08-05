@@ -13,38 +13,31 @@
 #include <string>
 #include <vector>
 
-namespace cat {
-	class VirtualBase;
-	using VirtualBasePtr = cat::OwningPtr<VirtualBase>;
-	class VirtualBase {
-	VirtualBase(const VirtualBase&);
-	virtual ~VirtualBase() {};
+namespace ngpl {
 
-	virtual VirtualBasePtr copy() const = 0;
-};
-
-	struct IFormattable {
+struct IFormattable {
 	virtual std::string getTypeName() const { return "IFormattable";}
 	virtual cat::WriterObjectABC& _formatVal(cat::WriterObjectABC& s) const = 0;
 
+protected:
 	auto _getMembersTuple() const {
 		return std::make_tuple();
 	}
-	protected:
-		auto _getLocalMembersTuple() const {
-			return std::make_tuple();
-		}
+
+	auto _getLocalMembersTuple() const {
+		return std::make_tuple();
+	}
 };
 
 	inline cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const IFormattable& v) {
 	return v._formatVal(s);
 	}
 
-	template <class _T>
-	struct IEvaluatable {
-	using T = _T;
-	   virtual T eval() const = 0;
-};
+
+#define STRUCT_WITH_PTR(Cls)\
+	PTRS_FOR_STRUCT(Cls)    \
+	struct Cls
+
 }
 
 namespace ngpl {
@@ -67,15 +60,15 @@ namespace ngpl {
 		return s;								\
 	}
 
-STRUCT_WITH_PTR(Node) : public cat::IFormattable {
+STRUCT_WITH_PTR(Node) : public ngpl::IFormattable {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCTuple();
 	}
-	NON_COPY_FORMATTABLE(Node, cat::IFormattable)
+	NON_COPY_FORMATTABLE(Node, ngpl::IFormattable)
 
 
 	Node(const Position pos)
-		: cat::IFormattable(), pos(pos)
+		: ngpl::IFormattable(), pos(pos)
 	{};
 	virtual ~Node() {}
 
@@ -103,10 +96,10 @@ STRUCT_WITH_PTR(Root) : public Node {
 		);
 	}
 	NON_COPY_FORMATTABLE(Root, Node)
-	OwningPtrVector<Statement> statements;
+	std::vector<StatementPtr> statements;
 
 	Root(const Position& pos) : Node(pos), statements() {}
-	Root(OwningPtrVector<Statement>&& statements, const Position& pos)
+	Root(std::vector<StatementPtr>&& statements, const Position& pos)
 		: Node(pos), statements(std::move(statements)) 
 	{}
 
@@ -234,9 +227,9 @@ STRUCT_WITH_PTR(FunctionCall) : public Expression {
 	NON_COPY_FORMATTABLE(FunctionCall, Expression)
 	std::string name;
 	ExpressionPtr parent;
-	OwningPtrVector<Expression> arguments;
+	std::vector<ExpressionPtr> arguments;
 
-	FunctionCall(std::string&& name, ExpressionPtr&& parent, OwningPtrVector<Expression>&& args, const Position& pos)
+	FunctionCall(std::string&& name, ExpressionPtr&& parent, std::vector<ExpressionPtr>&& args, const Position& pos)
 	   : Expression(pos), name(std::move(name)), parent(std::move(parent)), arguments(std::move(args)) {}
 };
 
@@ -356,9 +349,9 @@ STRUCT_WITH_PTR(Block) : public Node {
 		);
 	}
 	NON_COPY_FORMATTABLE(Block, Node)
-	OwningPtrVector<Statement> statements;
+	std::vector<StatementPtr> statements;
 
-	Block(OwningPtrVector<Statement>&& statements, const Position& pos)
+	Block(std::vector<StatementPtr>&& statements, const Position& pos)
 		: Node(pos), statements(std::move(statements)) 
 	{}
 
@@ -445,7 +438,7 @@ STRUCT_WITH_PTR(FuncDeclaration) : public Declaration {
 		);
 	}
 	NON_COPY_FORMATTABLE(FuncDeclaration, Declaration)
-	FuncDeclaration(std::string&& name, TypeExprPtr&& returnType, OwningPtrVector<ParamDeclaration>&& params, BlockPtr&& block, const Position& pos)
+	FuncDeclaration(std::string&& name, TypeExprPtr&& returnType, std::vector<ParamDeclarationPtr>&& params, BlockPtr&& block, const Position& pos)
 		: Declaration(std::move(name), pos),
 		  returnType(std::move(returnType)),
 		  parameters(std::move(params)),
@@ -453,7 +446,7 @@ STRUCT_WITH_PTR(FuncDeclaration) : public Declaration {
 	{ };
 
 	TypeExprPtr returnType;
-	OwningPtrVector<ParamDeclaration> parameters;
+	std::vector<ParamDeclarationPtr> parameters;
 	BlockPtr block;
 };
 
@@ -476,12 +469,12 @@ STRUCT_WITH_PTR(StructDeclaration) : public TypeDeclaration {
 		);
 	}
 	NON_COPY_FORMATTABLE(StructDeclaration, TypeDeclaration)
-	StructDeclaration(std::string&& name, OwningPtrVector<Declaration>&& members, const Position& pos)
+	StructDeclaration(std::string&& name, std::vector<DeclarationPtr>&& members, const Position& pos)
 		: TypeDeclaration(std::move(name), pos),
 		  members(std::move(members))
 	{ };
 
-	OwningPtrVector<Declaration> members;
+	std::vector<DeclarationPtr> members;
 };
 
 

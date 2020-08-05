@@ -17,8 +17,8 @@ public:
 	Linker(std::vector<UnitCWeakPtr>&& units);
 
 	void generateInstructionStream();
-	void generateInstructionStream(InstructionsContainerCWeakPtr container);
-	void generateInstructionStream(cat::WeakPtr<const Scope> scope);
+	void generateInstructionStream(itm::IntermediateCodeContainerCWeakPtr container);
+	void generateInstructionStream(ScopeCWeakPtr scope);
 
 	void linkFunctions();
 

@@ -23,7 +23,7 @@ void Linker::generateInstructionStream()
 
 }
 
-void Linker::generateInstructionStream(InstructionsContainerCWeakPtr container)
+void Linker::generateInstructionStream(itm::IntermediateCodeContainerCWeakPtr container)
 {
 	_instructions.insert(_instructions.end(), container->instructions.begin(), container->instructions.end());
 
@@ -32,7 +32,7 @@ void Linker::generateInstructionStream(InstructionsContainerCWeakPtr container)
 	}
 }
 
-void Linker::generateInstructionStream(cat::WeakPtr<const Scope> scope)
+void Linker::generateInstructionStream(ScopeCWeakPtr scope)
 {
 
 	foreach_c(func, cat::range(scope->getFunctions())

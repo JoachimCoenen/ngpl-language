@@ -24,7 +24,7 @@ public:
 	DeclarationPtr tryParseDeclaration();
 	DeclarationPtr parseDeclaration();
 	FuncDeclarationPtr parseFuncDeclaration();
-	OwningPtrVector<ParamDeclaration> parseParameters();
+	std::vector<ParamDeclarationPtr> parseParameters();
 	ParamDeclarationPtr parseParameter();
 	ConstDeclarationPtr parseConstDeclaration();
 	VarDeclarationPtr parseVarDeclaration();
@@ -44,7 +44,7 @@ public:
 	ExpressionPtr parseVarReferenceOrFunctionCall();
 	UnaryOperatorCallPtr parseUnaryOperator();
 
-	OwningPtrVector<Expression> parseTuple();
+	std::vector<ExpressionPtr> parseTuple();
 	LiteralBoolPtr parseBoolean();
 	LiteralIntPtr parseInteger();
 	LiteralStringPtr parseString();

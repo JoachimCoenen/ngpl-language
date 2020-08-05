@@ -7,7 +7,7 @@ Unit::Unit()
 
 }
 
-Unit::Unit(const std::string& name, cat::OwningPtr<Scope>&& scope, UnitNature unitNature)
+Unit::Unit(const std::string& name, ScopePtr&& scope, UnitNature unitNature)
 	: _name(name),
 	  _scope(std::move(scope)),
 	  _unitNature(unitNature)

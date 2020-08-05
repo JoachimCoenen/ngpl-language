@@ -4,7 +4,6 @@
 #include "instructionsContainer.h"
 #include "scope.h"
 #include "../language/unitNature.h"
-
 //#include "../util/types.h"
 
 #include "cat_utils.h"
@@ -23,11 +22,11 @@ class Unit: public InstructionsContainer
 {
 public:
 	Unit();
-	Unit(const std::string& name, cat::OwningPtr<Scope>&& scope, UnitNature unitNature);
+	Unit(const std::string& name, ScopePtr&& scope, UnitNature unitNature);
 
 	const std::string& name() const { return _name; }
-	cat::OwningPtr<Scope>& scope() { return _scope; }
-	cat::WeakPtr<const Scope> scope() const { return _scope.getRaw(); }
+	ScopePtr& scope() { return _scope; }
+	ScopeCWeakPtr scope() const { return _scope.getRaw(); }
 	UnitNature unitNature() const { return _unitNature; }
 
 	bool isGlobal() const override {
@@ -38,7 +37,7 @@ public:
 
 protected:
 	std::string _name;
-	cat::OwningPtr<Scope> _scope;
+	ScopePtr _scope;
 	UnitNature _unitNature;
 };
 

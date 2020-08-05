@@ -21,8 +21,10 @@ win32:CONFIG(debug,   debug|release): QMAKE_CXXFLAGS += -Wno-comment
 SOURCES += \
         src/compiler/codeGenerator.cpp \
         src/compiler/function.cpp \
+        src/compiler/intermediate/intermediateCode.cpp \
         src/compiler/linker.cpp \
         src/compiler/member.cpp \
+        src/compiler/optimizer.cpp \
         src/compiler/parser.cpp \
         src/compiler/scope.cpp \
         src/compiler/stackFrame.cpp \
@@ -56,8 +58,10 @@ HEADERS += \
     src/compiler/codeGenerator.h \
     src/compiler/function.h \
     src/compiler/instructionsContainer.h \
+    src/compiler/intermediate/intermediateCode.h \
     src/compiler/linker.h \
     src/compiler/member.h \
+    src/compiler/optimizer.h \
     src/compiler/parser.h \
     src/compiler/scope.h \
     src/compiler/stackFrame.h \

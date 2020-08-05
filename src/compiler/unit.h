@@ -29,9 +29,9 @@ public:
 	ScopeCWeakPtr scope() const { return _scope.getRaw(); }
 	UnitNature unitNature() const { return _unitNature; }
 
-	bool isGlobal() const override {
-		return true;
-	}
+//	bool isGlobal() const override {
+//		return true;
+//	}
 
 	cat::WriterObjectABC& print(cat::WriterObjectABC& s) const override final;
 

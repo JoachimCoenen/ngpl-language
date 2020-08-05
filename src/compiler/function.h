@@ -43,6 +43,7 @@ public:
 	bool isMethod() const { return _isMethod; }
 
 	int32_t stackDelta() const;
+	int32_t argumentsStackSize() const;
 
 	std::string asCodeString() const override {
 		return cat::SW() << Member::asCodeString() << "(" << _signature.asQualifiedCodeString() << ") -> " << returnType()->asQualifiedCodeString();

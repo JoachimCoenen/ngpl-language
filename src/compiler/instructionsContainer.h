@@ -1,6 +1,7 @@
 #ifndef SCOPEDINSTRUCTIONSCONTAINER_H
 #define SCOPEDINSTRUCTIONSCONTAINER_H
 
+#include "intermediate/intermediateCode.h"
 #include "../vm/instruction.h"
 #include "../util/types.h"
 
@@ -13,22 +14,14 @@ namespace ngpl {
 struct Scope;
 
 PTRS_FOR_STRUCT(InstructionsContainer)
-struct InstructionsContainer: public IIntermediateCodePrintable {
-	InstructionsContainer() {}
-	std::vector<Instruction> instructions;
+struct InstructionsContainer: public intermediate::IntermediateCodeContainer {
+	InstructionsContainer()
+	: intermediate::IntermediateCodeContainer()
+{}
 
-
-	virtual bool isGlobal() const {
-		return false;
-	}
-
-	cat::WriterObjectABC& print(cat::WriterObjectABC& s) const override {
-		foreach_c(instr, instructions) {
-			s += cat::nlIndent;
-			instr.print(s);
-		}
-		return s;
-	}
+//	virtual bool isGlobal() const {
+//		return false;
+//	}
 
 };
 

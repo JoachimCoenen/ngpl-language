@@ -15,12 +15,12 @@ Unit::Unit(const std::string& name, ScopePtr&& scope, UnitNature unitNature)
 
 cat::WriterObjectABC& Unit::print(cat::WriterObjectABC& s) const
 {
+	s+= cat::nlIndent;
 	s += "unit ";
 	s += name();
 
 	s.incIndent();
 	{
-		s+= cat::nlIndent;
 		scope()->print(s);
 		s += cat::nl;
 		InstructionsContainer::print(s);

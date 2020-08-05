@@ -22,7 +22,7 @@ RootPtr Parser::parseRoot()
 {
 	auto pos = tokenizer.getPos();
 	if (wouldAcceptAnyOfToken({"unit",  "program", "package", "library"})) {
-		OwningPtrVector<Statement> statements;
+		std::vector<StatementPtr> statements;
 		statements.push_back(parseUnit());
 		return {new Root{std::move(statements), pos}};
 	} else {
@@ -140,9 +140,9 @@ FuncDeclarationPtr Parser::parseFuncDeclaration()
 	return {new FuncDeclaration{std::move(name), std::move(returnType), std::move(parameters), std::move(block), pos}};
 }
 
-OwningPtrVector<ParamDeclaration> Parser::parseParameters()
+std::vector<ParamDeclarationPtr> Parser::parseParameters()
 {
-	OwningPtrVector<ParamDeclaration> result;
+	std::vector<ParamDeclarationPtr> result;
 	acceptToken("(");
 	if (wouldAcceptToken(")")) {
 	acceptToken(")");
@@ -217,8 +217,7 @@ TypeDeclarationPtr Parser::parseTypeDeclaration()
 	if (tryAcceptToken("struct")) {
 		acceptToken("{");
 
-		currentToken().pos;
-		OwningPtrVector<Declaration> declarations;
+		std::vector<DeclarationPtr> declarations;
 		while (not tokenizer.isPastEnd() and not cat::isAnyOf(currentToken().content, "}")) {
 			declarations.push_back(parseDeclaration());
 		}
@@ -385,7 +384,7 @@ ExpressionPtr Parser::parseExpression()
 BlockPtr Parser::parseBlock(const std::initializer_list<std::string>& endMarkers)
 {
 	auto pos = currentToken().pos;
-	OwningPtrVector<Statement> statements;
+	std::vector<StatementPtr> statements;
 	while (not tokenizer.isPastEnd() and not cat::isAnyOf_alt(currentToken().content, endMarkers)) {
 		statements.push_back(parseStatement());
 	}
@@ -415,9 +414,9 @@ UnaryOperatorCallPtr Parser::parseUnaryOperator()
 	return {new UnaryOperatorCall{std::move(oper.content), std::move(operand), oper.pos}};
 }
 
-OwningPtrVector<Expression> Parser::parseTuple()
+std::vector<ExpressionPtr> Parser::parseTuple()
 {
-	OwningPtrVector<Expression> result;
+	std::vector<ExpressionPtr> result;
 	acceptToken("(");
 	if (wouldAcceptToken(")")) {
 		acceptToken(")");

@@ -1,6 +1,7 @@
 #ifndef CODEGENERATOR_H
 #define CODEGENERATOR_H
 
+#include "intermediate/intermediateCode.h"
 #include "../vm/instruction.h"
 #include "../vm/value.h"
 #include "../vm/vm_util.h"
@@ -16,6 +17,10 @@
 #include <string>
 #include <map>
 #include <unordered_map>
+
+namespace {
+namespace itm = ngpl::intermediate;
+}
 
 namespace ngpl {
 
@@ -42,7 +47,8 @@ public:
 
 	//std::vector<Instruction> _instructions;
 	std::vector<ScopePtr> scopeStack;//{Scope("0ROOT")};
-	std::vector<InstructionsContainerWeakPtr> instructionsScopeStack;//{Scope("0ROOT")};
+	std::vector<itm::IntermediateCodeContainerWeakPtr> codeContainerStack;
+	cat::Stack<TypeWeakPtr> typeStack;
 	int64_t tempsOnStack = 0;
 
 	bool isGlobal() const { return scopeStack.size() == 1; }
@@ -75,8 +81,8 @@ protected:
 	void popScope();
 	inline ScopeWeakPtr currentScope() { return scopeStack.back().getRaw(); }
 	inline const ScopeCWeakPtr currentScope() const { return scopeStack.back().getRaw(); }
-	inline InstructionsContainerWeakPtr& currentInstructioins() { return instructionsScopeStack.back(); }
-	inline const InstructionsContainerWeakPtr& currentInstructioins() const { return instructionsScopeStack.back(); }
+	inline itm::IntermediateCodeContainerWeakPtr& currentInstructioins() { return codeContainerStack.back(); }
+	inline const itm::IntermediateCodeContainerWeakPtr& currentInstructioins() const { return codeContainerStack.back(); }
 
 	// Address Tramsformations:
 	/**
@@ -105,18 +111,24 @@ protected:
 	void cleanupStack(uint16_t amount, const Position& pos);
 
 	inline InstructionPos addInstruction(Instruction&& instr) {
-		currentInstructioins()->instructions.push_back(std::move(instr));
+		currentInstructioins()->instructions.push_back(new itm::IntermediateInstruction(std::move(instr)));
 		tempsOnStack += ngpl::Instructions::stackDeltaForInstructions[instr.id()];
 		return getCurrentPos() - 1;
 	}
 
-	inline void setInstruction(const InstructionPos& pos, Instruction&& instr) {
-		currentInstructioins()->instructions[pos] = std::move(instr);
+	inline InstructionPos addInstruction(itm::IntermediateCodePtr&& instr) {
+		currentInstructioins()->instructions.push_back(std::move(instr));
+		//tempsOnStack += ngpl::Instructions::stackDeltaForInstructions[instr.id()];
+		return getCurrentPos() - 1;
 	}
 
-	inline const Instruction& getInstruction(const InstructionPos& pos) const {
-		return currentInstructioins()->instructions[pos];
+	inline void setInstruction(const InstructionPos& pos, Instruction&& instr) {
+		currentInstructioins()->instructions[pos] = new itm::IntermediateInstruction(std::move(instr));
 	}
+
+//	inline const Instruction& getInstruction(const InstructionPos& pos) const {
+//		return currentInstructioins()->instructions[pos];
+//	}
 
 	inline InstructionPos getCurrentPos() const {
 		return currentInstructioins()->instructions.size();

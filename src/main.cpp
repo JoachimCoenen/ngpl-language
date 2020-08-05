@@ -5,6 +5,7 @@
 #include "compiler/syntaxError.h"
 #include "compiler/codeGenerator.h"
 #include "compiler/linker.h"
+#include "compiler/optimizer.h"
 //#include "vm/evaluationContext.h"
 #include "vm/instructionExecuter.h"
 
@@ -145,6 +146,15 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 			//write to File:
 			{
 				auto outFile = cat::FW(new std::ofstream(TEST_UNIT1_PATH + NGPL_COMPILED_EXTENSION));
+				unit->print(outFile);
+			}
+
+			// optimizing:
+			ngpl::Optimizer().optimize(unit.getRaw());
+
+			//write to File:
+			{
+				auto outFile = cat::FW(new std::ofstream(TEST_UNIT1_PATH + "_opt" + NGPL_COMPILED_EXTENSION));
 				unit->print(outFile);
 			}
 

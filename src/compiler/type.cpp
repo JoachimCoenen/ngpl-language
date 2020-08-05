@@ -22,6 +22,7 @@ Type::Type(const std::string& name, const std::string& qualifier, uint64_t fixed
 
 cat::WriterObjectABC& Type::print(cat::WriterObjectABC& s) const
 {
+	s+= cat::nlIndent;
 	s += "type ";
 	s += asCodeString();
 
@@ -34,7 +35,6 @@ cat::WriterObjectABC& Type::print(cat::WriterObjectABC& s) const
 		if (s2.str().size() > 0) {
 			s += s2.str();
 			s += cat::nl;
-			s += cat::nlIndent;
 		}
 		InstructionsContainer::print(s);
 	}

@@ -17,8 +17,8 @@ inline cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const None_&)
 	return s += "   ";
 }
 
-#define INSTRUCTION_FACTORY0(instrName, stackDelta, funcName) instrName,
-#define INSTRUCTION_FACTORY1(instrName, stackDelta, funcName, argType, arg) instrName,
+#define INSTRUCTION_FACTORY0(instrName, stackDelta, hasSideEffect, funcName) instrName,
+#define INSTRUCTION_FACTORY1(instrName, stackDelta, hasSideEffect, funcName, argType, arg) instrName,
 enum class InstructionID {
 #include "instructions_inc.h"
 
@@ -79,12 +79,12 @@ public:
 	static const Instructions stackDeltaForInstructions;
 	//int64_t getStackDeltaForInstruction();
 
-#define INSTRUCTION_FACTORY0(instrName, stackDelta, funcName)		\
+#define INSTRUCTION_FACTORY0(instrName, stackDelta, hasSideEffect, funcName)		\
 	static auto funcName(const Position& pos) {       \
 	return Instruction(InstructionID::instrName, None_{}, pos); \
 	}
 
-#define INSTRUCTION_FACTORY1(instrName, stackDelta, funcName, argType, arg)		\
+#define INSTRUCTION_FACTORY1(instrName, stackDelta, hasSideEffect, funcName, argType, arg)		\
 	static auto funcName(argType arg, const Position& pos) {   \
 		return Instruction(InstructionID::instrName, arg, pos);           \
 	}

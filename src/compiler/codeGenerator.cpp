@@ -76,13 +76,18 @@ std::pair<FunctionSignature, BuiltinFunction> builtinFunc(
 
 #define BI_OP(op_, rType, argsType, rcType, type, instrs) builtinFunc(#op_, "", rType, {argsType, argsType},[](cat::Stack<Value>& args){ auto rhs = GETVAL(0, type); auto lhs = GETVAL(1, type); return rcType(lhs op_ rhs); }, instrs)
 
+
+#define UN_OP(op_, rType, argType, rcType, type, instrs) builtinFunc(#op_, "", rType, {argType},[](cat::Stack<Value>& args){ auto rhs = GETVAL(0, type); return rcType(op_ rhs); }, instrs)
+
 const std::unordered_map<std::string, std::unordered_map<FunctionSignature, BuiltinFunction>> CodeGenerator::builtinFunctions {
 	{ "+", {
 			BI_OP(+, "Int", "Int", int64_t, int64_t, {{InstructionID::ADD_SI}}),
 			BI_OP(+, "String", "String", std::string, std::string, std::nullopt),
+			UN_OP(+, "Int", "Int", int64_t, int64_t, {std::vector<InstructionID>()}),
 		}
 	}, {  "-", {
 		BI_OP(-, "Int", "Int", int64_t, int64_t, {{InstructionID::SUB_SI}}),
+		UN_OP(-, "Int", "Int", int64_t, int64_t, {{InstructionID::NEG_SI}}),
 		}
 	}, { "*", {
 		BI_OP(*, "Int", "Int", int64_t, int64_t, {{InstructionID::MUL_SI}}),
@@ -204,7 +209,7 @@ UnitPtr CodeGenerator::evalUnitDeclaration(const UnitDeclarationCWeakPtr& unitDe
 	const auto& name = unitDecl->name;
 	const auto& unitNature = unitDecl->unitNature;
 	UnitPtr unit = new Unit(name, nullptr, unitNature);
-	instructionsScopeStack.push_back(unit.getRaw());
+	codeContainerStack.push_back(unit.getRaw());
 	pushScope(true);
 
 	foreach_c(innerDecl, unitDecl->block->statements) {
@@ -334,7 +339,7 @@ TypeCWeakPtr CodeGenerator::evalFunction(const FunctionBaseCWeakPtr& func, const
 
 		// call function:
 		addInstruction(Instrs::PushCntrFR(+2, pos));
-		addInstruction(Instrs::Call(fn->asQualifiedCodeString(), pos));
+		addInstruction(Instrs::Call(fn.___getPtr(), pos));
 
 
 		// handle stack frame:
@@ -353,7 +358,7 @@ TypeCWeakPtr CodeGenerator::evalFunction(const FunctionBaseCWeakPtr& func, const
 			}
 			return func->returnType();
 		} else {
-			addInstruction(Instrs::Call(&fn->_body, pos));
+			addInstruction(Instrs::Call(fn.___getPtr(), pos));
 		}
 	}
 	tempsOnStack += func->stackDelta();
@@ -384,50 +389,47 @@ void CodeGenerator::evalStatement(const StatementCWeakPtr& stmt)
 	else if (auto ifControl = stmt.as<IfControl>()) {
 		const auto conditionType = evalExpression(ifControl->condition.getRaw());
 		checkType(GET_BUILIN_TYPE("Bool"), conditionType, ifControl->condition->pos);
+		tempsOnStack -= 1;
 
-		addInstruction(Instrs::IfZero(ifControl->pos));
-		const auto jmpInstrPos_if = addInstruction(Instrs::Nop(ifControl->pos));
+		itm::IntermediateCodeContainer ifCode;
+		codeContainerStack.push_back(&ifCode);
 		evalBlock(ifControl->thenBlock.getRaw());
+		codeContainerStack.pop_back();
 
-
-		const auto jmpInstrPos_else = getCurrentPos();
+		itm::IntermediateCodeContainer elseCode;
 		if (ifControl->elseBlock) {
-			addInstruction(Instrs::Nop(ifControl->elseBlock->pos));
-			// set 'jump over Then block' instruction:
-			const auto jmp1Cnt = jmpInstrPos_else - jmpInstrPos_if + 1;
-			// placeholder for 'jump over if block' instruction:
-			setInstruction(jmpInstrPos_if, Instrs::JumpFR(jmp1Cnt, ifControl->pos));
-
+			codeContainerStack.push_back(&elseCode);
 			evalBlock(ifControl->elseBlock.getRaw());
-			const auto jmpInstrPos_end = getCurrentPos();
-
-			// set 'jump over Else block' instruction:
-			const auto jmpEndCnt = jmpInstrPos_end - jmpInstrPos_else;
-			setInstruction(jmpInstrPos_else, Instrs::JumpFR(jmpEndCnt, ifControl->pos));
-		} else {
-			// set 'jump over Then block' instruction:
-			const auto jmp1Cnt = jmpInstrPos_else - jmpInstrPos_if;
-			setInstruction(jmpInstrPos_if, Instrs::JumpFR(jmp1Cnt, ifControl->pos));
+			codeContainerStack.pop_back();
 		}
+
+		addInstruction(new itm::IntermediateIf(false, std::move(ifCode), std::move(elseCode), ifControl->pos));
+
 	}
 
 	else if (auto whieControl = stmt.as<WhileControl>()) {
-		const auto whileConditionPos = getCurrentPos();
+		//const auto whileConditionPos = getCurrentPos();
+		itm::IntermediateCodeContainer code;
+		codeContainerStack.push_back(&code);
+
 		const auto conditionType = evalExpression(whieControl->condition.getRaw());
 		checkType(GET_BUILIN_TYPE("Bool"), conditionType, whieControl->condition->pos);
+		tempsOnStack -= 1;
 
-		addInstruction(Instrs::IfZero(whieControl->pos));
-		// placeholder for 'jump out of loop' instruction:
-		const auto whileBlockPos = addInstruction(Instrs::Nop(whieControl->pos));
+		itm::IntermediateCodeContainer ifCode;
+		codeContainerStack.push_back(&ifCode);
+		addInstruction(new itm::IntermediateSpecial(itm::IntermediateSpecialId::BREAK, whieControl->pos));
+		codeContainerStack.pop_back();
+
+		itm::IntermediateCodeContainer elseCode;
+		addInstruction(new itm::IntermediateIf(true, std::move(ifCode), std::move(elseCode), whieControl->pos));
+
+
 
 		evalBlock(whieControl->block.getRaw());
-
-		const auto jmpBackCnt = whileConditionPos - getCurrentPos();
-		addInstruction(Instrs::JumpFR(jmpBackCnt, whieControl->pos));
-
-		const auto jmpEndCnt = getCurrentPos() - whileBlockPos;
-		setInstruction(whileBlockPos, Instrs::JumpFR(jmpEndCnt, whieControl->pos));
-
+		addInstruction(new itm::IntermediateSpecial(itm::IntermediateSpecialId::CONTINUE, whieControl->pos));
+		codeContainerStack.pop_back();
+		addInstruction(new itm::IntermediateLoop(std::move(code), whieControl->pos));
 	}
 
 	else if (auto returnStmt = stmt.as<ReturnStatement>()) {
@@ -446,8 +448,7 @@ void CodeGenerator::evalStatement(const StatementCWeakPtr& stmt)
 //		}
 //		tempsOnStack = 0;
 
-		addInstruction(Instrs::PopCntr(returnStmt->pos));
-		addInstruction(Instrs::JumpDA(returnStmt->pos));
+		addInstruction(new itm::IntermediateSpecial(itm::IntermediateSpecialId::RETURN, returnStmt->pos));
 	}
 
 	else if (auto decl = stmt.as<Declaration>()) {
@@ -537,7 +538,7 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 
 		pushScope(true);
 
-		TypeWeakPtr selfType = instructionsScopeStack.back().as<Type>();
+		TypeWeakPtr selfType = typeStack.empty() ? nullptr : typeStack.peek();
 		bool isMethod = selfType != nullptr;
 
 
@@ -577,13 +578,13 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 			throw SyntaxError(cat::SW() << "redefinition of '" << funcDecl->name << "(" << signature.asCodeString() << ")'.", decl->pos);
 		}
 		(*(scopeStack.end()-2))->addFunction(funcDecl->name, std::move(signature), function.___getPtr());
-		instructionsScopeStack.push_back(function);
+		codeContainerStack.push_back(function);
 
 		//currentScope()->addVariable("*return", returnType);
 		const auto oldFrameSize = currentScope()->getFrameSize();
 		currentScope()->setVariable("*return", new Variable(returnType, 0, ReferenceMode::STACK_VAL, false, false));
 
-		// make sure thereis enough room for the return value:
+		// make sure there's enough room for the return value:
 		const auto newFrameSize = currentScope()->getFrameSize();
 		if (newFrameSize > oldFrameSize) {
 			NGPL_ASSERT(tempsOnStack == 0)
@@ -604,12 +605,11 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 //			addInstruction(Instrs::PopVal(funcDecl->pos));
 //		}
 		// return
-		addInstruction(Instrs::PopCntr(funcDecl->pos));
-		addInstruction(Instrs::JumpDA(funcDecl->pos));
+		addInstruction(new itm::IntermediateSpecial(itm::IntermediateSpecialId::RETURN, funcDecl->pos));
 
 		//setInstruction(jmpOverFuncDeclPos, Instrs::JumpFA(getCurrentPos(), funcDecl->pos));
 		popScope();
-		instructionsScopeStack.pop_back();
+		codeContainerStack.pop_back();
 	}
 
 	else if (auto typeDecl = decl.as<StructDeclaration>()) {
@@ -620,11 +620,12 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 			throw SyntaxError(cat::SW() << "redefinition of '" << name << "'.", decl->pos);
 		}
 
-		TypeWeakPtr parentType = instructionsScopeStack.back().as<Type>();
+		TypeWeakPtr parentType = typeStack.empty() ? nullptr : typeStack.peek();
 		const auto qualifier = parentType != nullptr ? parentType->asQualifiedCodeString() + "." : "";
 		TypeWeakPtr type = new Type(name, qualifier, 0 , false);
-		currentScope()->addType(name, TypeCPtr(type.___getPtr()));
-		instructionsScopeStack.push_back(type);
+		currentScope()->addType(name, TypePtr(type.___getPtr()));
+		codeContainerStack.push_back(type);
+		typeStack.push(type);
 		pushScope(true);
 
 		foreach_c(innerDecl, typeDecl->members) {
@@ -643,7 +644,8 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 		scopeStack.back().___getPtr() = nullptr;
 		//type->scope() = new Scope(std::move(currentScope()));
 		popScope();
-		instructionsScopeStack.pop_back();
+		typeStack.pop();
+		codeContainerStack.pop_back();
 
 		//setInstruction(jmpOverFuncDeclPos, Instrs::JumpFA(getCurrentPos(), typeDecl->pos));
 	}

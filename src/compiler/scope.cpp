@@ -21,13 +21,13 @@ VariableCWeakPtr Scope::addVariable(const std::string& name, VariablePtr&& varia
 	return (variables[name] = std::move(variable)).getRaw();
 }
 
-void Scope::addType(const std::string& name, TypeCPtr&& type)
+void Scope::addType(const std::string& name, TypePtr&& type)
 {
 	NGPL_ASSERT2(types.find(name) == types.end(), "type " + name + " is already in types!")
 	(types[name] = std::move(type)).getRaw();
 }
 
-void Scope::addFunction(const std::string& name, FunctionSignature&& signature, FunctionCPtr&& function)
+void Scope::addFunction(const std::string& name, FunctionSignature&& signature, FunctionPtr&& function)
 {
 	auto& overloads = functions[name];
 	NGPL_ASSERT2(overloads.find(signature) == overloads.end(), "function " + name + signature.asCodeString() + " is already in functions!")
@@ -43,6 +43,20 @@ VariableCWeakPtr Scope::tryGetVariable(const std::string& name) const
 	return nullptr;
 }
 
+FunctionBaseWeakPtr Scope::tryGetFunction(const std::string& name, const FunctionSignature& signature)
+{
+	//bool hasFoundName = false;
+	auto functionsIt = functions.find(name);
+	if (functionsIt != functions.end()) {
+		//hasFoundName = true;
+		auto overloadsIt = functionsIt->second.find(signature);
+		if (overloadsIt != functionsIt->second.end()) {
+			return overloadsIt->second.getRaw();
+		}
+	}
+	return nullptr;
+}
+
 FunctionBaseCWeakPtr Scope::tryGetFunction(const std::string& name, const FunctionSignature& signature) const
 {
 	//bool hasFoundName = false;
@@ -53,6 +67,15 @@ FunctionBaseCWeakPtr Scope::tryGetFunction(const std::string& name, const Functi
 		if (overloadsIt != functionsIt->second.end()) {
 			return overloadsIt->second.getRaw();
 		}
+	}
+	return nullptr;
+}
+
+TypeWeakPtr Scope::tryGetType(const std::string& name)
+{
+	auto typesIt = types.find(name);
+	if (typesIt != types.end()) {
+		return typesIt->second.getRaw();
 	}
 	return nullptr;
 }
@@ -78,7 +101,6 @@ cat::WriterObjectABC& Scope::print(cat::WriterObjectABC& s) const
 		}
 		while(not typeIt.isPastEnd()) {
 			s += cat::nl;
-			s += cat::nlIndent;
 			typeIt.get()->print(s);
 			typeIt.advance();
 		}
@@ -94,7 +116,6 @@ cat::WriterObjectABC& Scope::print(cat::WriterObjectABC& s) const
 	}
 	while(not funcIt.isPastEnd()) {
 		s += cat::nl;
-		s += cat::nlIndent;
 		funcIt.get()->print(s);
 		funcIt.advance();
 	}

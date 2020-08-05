@@ -1,5 +1,7 @@
 #include "instruction.h"
 
+// a bit hacky...:
+#include "../compiler/function.h"
 
 namespace ngpl {
 
@@ -7,8 +9,8 @@ namespace ngpl {
 
 const Instructions Instructions::stackDeltaForInstructions{};
 
-#define INSTRUCTION_FACTORY0(instrName, stackDelta, funcName) FORMAT_ENUM_VAL_CASE(InstructionID, instrName);
-#define INSTRUCTION_FACTORY1(instrName, stackDelta, funcName, argType, arg) FORMAT_ENUM_VAL_CASE(InstructionID, instrName);
+#define INSTRUCTION_FACTORY0(instrName, stackDelta, hasSideEffect, funcName) FORMAT_ENUM_VAL_CASE(InstructionID, instrName);
+#define INSTRUCTION_FACTORY1(instrName, stackDelta, hasSideEffect, funcName, argType, arg) FORMAT_ENUM_VAL_CASE(InstructionID, instrName);
 cat::WriterObjectABC& operator +=(cat::WriterObjectABC& s, const InstructionID& v) {
 	switch (v) {
 #include "instructions_inc.h"
@@ -35,7 +37,10 @@ cat::WriterObjectABC& Instruction::print(cat::WriterObjectABC& s) const
 	s += idStr;
 	s += std::string(std::max(2ll, 20 - int64_t(idStr.length())), ' ');
 
-	const auto dataStr = cat::formatVal(_data);
+	auto dataStr = cat::formatVal(_data);
+	if (id() == InstructionID::CALL) {
+		dataStr = static_cast<const FunctionBase*>(data().getValue<const void*>())->asCodeString();
+	}
 	s += dataStr;
 	s += std::string(std::max(2ll, 35 - int64_t(dataStr.length())), ' ');
 	s +=  _pos.line();
@@ -49,8 +54,8 @@ std::string Instruction::toString() const
 	return s;
 }
 
-#define INSTRUCTION_FACTORY0(instrName, stackDelta, funcName) array[static_cast<uint8_t>(InstructionID::instrName)] = stackDelta;
-#define INSTRUCTION_FACTORY1(instrName, stackDelta, funcName, argType, arg) array[static_cast<uint8_t>(InstructionID::instrName)] = stackDelta;
+#define INSTRUCTION_FACTORY0(instrName, stackDelta, hasSideEffect, funcName) array[static_cast<uint8_t>(InstructionID::instrName)] = stackDelta;
+#define INSTRUCTION_FACTORY1(instrName, stackDelta, hasSideEffect, funcName, argType, arg) array[static_cast<uint8_t>(InstructionID::instrName)] = stackDelta;
 Instructions::Instructions()
 {
 	#include "instructions_inc.h"

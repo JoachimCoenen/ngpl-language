@@ -148,7 +148,7 @@ void Tokenizer::skipWhitespacesAndCommentsIfAny()
 
 bool Tokenizer::handleSingleNewLineIfAny()
 {
-	NGPL_ASSERT(not isEnd())
+	NGPL_ASSERT(not isEnd());
 	if (getChar() == '\r') {
 		if (not isNextEnd() and getNextChar() == '\n'){
 			pos.addvanceNewLine(2);
@@ -166,7 +166,7 @@ bool Tokenizer::handleSingleNewLineIfAny()
 
 void Tokenizer::skipWhitespaces()
 {
-	NGPL_ASSERT(not isEnd() and isSpace(getChar()))
+	NGPL_ASSERT(not isEnd() and isSpace(getChar()));
 	do {
 		if (not handleSingleNewLineIfAny()) {
 			// it is a normal space, tab, \f, ...
@@ -177,7 +177,7 @@ void Tokenizer::skipWhitespaces()
 
 void Tokenizer::skipLineComment()
 {
-	NGPL_ASSERT(not isEnd() and getChar() == '/' and not isNextEnd() and getNextChar() == '/')
+	NGPL_ASSERT(not isEnd() and getChar() == '/' and not isNextEnd() and getNextChar() == '/');
 	pos.addvanceChar();
 	pos.addvanceChar();
 	while (not isEnd()) {
@@ -194,7 +194,7 @@ void Tokenizer::skipLineComment()
 
 void Tokenizer::skipBlockComment()
 {
-	NGPL_ASSERT(not isEnd() and getChar() == '/' and not isNextEnd() and getNextChar() == '*')
+	NGPL_ASSERT(not isEnd() and getChar() == '/' and not isNextEnd() and getNextChar() == '*');
 	pos.addvanceChar();
 	pos.addvanceChar();
 	while (not isEnd()) {
@@ -338,13 +338,13 @@ void LookAheadIterator::advance()
 
 void LookAheadIterator::startSimulation()
 {
-	NGPL_ASSERT(_isSimulating == false)
+	NGPL_ASSERT(_isSimulating == false);
 	_isSimulating = true;
 }
 
 void LookAheadIterator::discardSimulation()
 {
-	NGPL_ASSERT(_isSimulating == true)
+	NGPL_ASSERT(_isSimulating == true);
 	lookAheads = std::move(simulationHistory);
 	simulationHistory = {};
 	_isSimulating = false;
@@ -352,7 +352,7 @@ void LookAheadIterator::discardSimulation()
 
 void LookAheadIterator::acceptSimulation()
 {
-	NGPL_ASSERT(_isSimulating == true)
+	NGPL_ASSERT(_isSimulating == true);
 	simulationHistory = {};
 	_isSimulating = false;
 }

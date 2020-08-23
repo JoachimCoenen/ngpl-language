@@ -11,9 +11,14 @@ int32_t FunctionBase::stackDelta() const
 
 int32_t FunctionBase::argumentsStackSize() const
 {
+	// next line is commented out, bc. 'self' variable is temporarely passed as a STACK_VAL and not a STACK_REF:
+	//return cat::range(_signature.argumentTypes())
+	//		.map_c(LAMBDA(v){ return v->fixedSize(); })
+	//		.join() + (isMethod() ? 1 : 0);
+
 	return cat::range(_signature.argumentTypes())
 			.map_c(LAMBDA(v){ return v->fixedSize(); })
-			.join() + (isMethod() ? 1 : 0);
+			.join();
 }
 
 cat::WriterObjectABC& Function::print(cat::WriterObjectABC& s) const {
@@ -21,9 +26,14 @@ cat::WriterObjectABC& Function::print(cat::WriterObjectABC& s) const {
 	s += "func ";
 	s += asCodeString();
 	s.incIndent();
-	InstructionsContainer::print(s);
+	body().print(s);
 	s.decIndent();
 	return s;
+}
+
+void Function::recalculteSideEffects()
+{
+	_hasSideEffect = body().hasSideEffect();
 }
 
 

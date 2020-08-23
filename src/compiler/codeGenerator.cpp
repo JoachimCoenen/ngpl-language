@@ -2,10 +2,11 @@
 
 #include "ranges.h"
 
-//    Instruction
-using Instrs = ngpl::Instructions;
 
 namespace ngpl {
+
+//    Instruction
+using Instrs = intermediate::Instructions;
 
 #define ADD_TYPE(builtinTypes, fixedSize, name) builtinTypes.insert_or_assign(name, new Type{name, "", fixedSize, true, true})
 #define ADD_TYPE2(name) {#name, {#name}}
@@ -62,6 +63,7 @@ std::pair<FunctionSignature, BuiltinFunction> builtinFunc(
 		const std::string& qualifier,
 		const std::string& resType,
 		std::vector<std::string> argTypes,
+		bool hasSideEffect,
 		const std::function<Value(cat::Stack<Value>&)>& body,
 		const std::optional<std::vector<InstructionID>>& instructions
 		)
@@ -71,13 +73,13 @@ std::pair<FunctionSignature, BuiltinFunction> builtinFunc(
 		.map(LAMBDA(t) { return GET_BUILIN_TYPE(t); })
 		.toVector()
 	};
-	return {signature, BuiltinFunction{name, qualifier, signature, GET_BUILIN_TYPE(resType), body, instructions}};
+	return {signature, BuiltinFunction{name, qualifier, signature, GET_BUILIN_TYPE(resType), hasSideEffect, body, instructions}};
 }
 
-#define BI_OP(op_, rType, argsType, rcType, type, instrs) builtinFunc(#op_, "", rType, {argsType, argsType},[](cat::Stack<Value>& args){ auto rhs = GETVAL(0, type); auto lhs = GETVAL(1, type); return rcType(lhs op_ rhs); }, instrs)
+#define BI_OP(op_, rType, argsType, rcType, type, instrs) builtinFunc(#op_, "", rType, {argsType, argsType}, false, [](cat::Stack<Value>& args){ auto rhs = GETVAL(0, type); auto lhs = GETVAL(1, type); return rcType(lhs op_ rhs); }, instrs)
 
 
-#define UN_OP(op_, rType, argType, rcType, type, instrs) builtinFunc(#op_, "", rType, {argType},[](cat::Stack<Value>& args){ auto rhs = GETVAL(0, type); return rcType(op_ rhs); }, instrs)
+#define UN_OP(op_, rType, argType, rcType, type, instrs) builtinFunc(#op_, "", rType, {argType}, false, [](cat::Stack<Value>& args){ auto rhs = GETVAL(0, type); return rcType(op_ rhs); }, instrs)
 
 const std::unordered_map<std::string, std::unordered_map<FunctionSignature, BuiltinFunction>> CodeGenerator::builtinFunctions {
 	{ "+", {
@@ -128,7 +130,7 @@ const std::unordered_map<std::string, std::unordered_map<FunctionSignature, Buil
 
 
 	{ "print", {
-		builtinFunc("print", "", "None", {"Bool"},
+		builtinFunc("print", "", "None", {"Bool"}, true,
 			[](cat::Stack<Value>& args) {
 				cat::OW out = cat::OW(std::cout);
 				out += GETVAL(0, int64_t) ? "true" : "false";
@@ -136,7 +138,7 @@ const std::unordered_map<std::string, std::unordered_map<FunctionSignature, Buil
 				return None();
 			}
 		, std::nullopt),
-		builtinFunc("print", "", "None", {"Int"},
+		builtinFunc("print", "", "None", {"Int"}, true,
 			[](cat::Stack<Value>& args) {
 				cat::OW out = cat::OW(std::cout);
 				out += GETVAL(0, int64_t);
@@ -144,7 +146,7 @@ const std::unordered_map<std::string, std::unordered_map<FunctionSignature, Buil
 				return None();
 			}
 		, std::nullopt),
-		builtinFunc("print", "", "None", {"String"},
+		builtinFunc("print", "", "None", {"String"}, true,
 			[](cat::Stack<Value>& args) {
 				cat::OW out = cat::OW(std::cout);
 				out += GETVAL(0, std::string);
@@ -154,7 +156,7 @@ const std::unordered_map<std::string, std::unordered_map<FunctionSignature, Buil
 		, std::nullopt),
 		}
 	}, { "readln", {
-		builtinFunc("readln", "", "String", {},
+		builtinFunc("readln", "", "String", {}, true,
 			[](cat::Stack<Value>& ) {
 				std::string line;
 				std::getline( std::cin, line );
@@ -163,14 +165,14 @@ const std::unordered_map<std::string, std::unordered_map<FunctionSignature, Buil
 		, std::nullopt),
 		}
 	}, { "Int", {
-		builtinFunc( "Int", "", "Int", {"String"},
+		builtinFunc( "Int", "", "Int", {"String"}, false,
 			[](cat::Stack<Value>& args) {
 				return std::stoll(GETVAL(0, std::string));
 			}
 		, std::nullopt),
 		}
 	}, { "String", {
-		builtinFunc( "String", "", "String", {"Int"},
+		builtinFunc( "String", "", "String", {"Int"}, false,
 			[](cat::Stack<Value>& args) {
 				return std::to_string   (GETVAL(0, int64_t));
 			}
@@ -209,7 +211,7 @@ UnitPtr CodeGenerator::evalUnitDeclaration(const UnitDeclarationCWeakPtr& unitDe
 	const auto& name = unitDecl->name;
 	const auto& unitNature = unitDecl->unitNature;
 	UnitPtr unit = new Unit(name, nullptr, unitNature);
-	codeContainerStack.push_back(unit.getRaw());
+	codeContainerStack.push_back(&unit->body());
 	pushScope(true);
 
 	foreach_c(innerDecl, unitDecl->block->statements) {
@@ -260,7 +262,8 @@ TypeCWeakPtr CodeGenerator::evalExpression(const ExpressionCWeakPtr& expr)
 		const bool isMethod = funcCall->parent != nullptr;
 		if (isMethod) {
 			parentType = evalExpression(funcCall->parent.getRaw());
-			addInstruction(Instrs::PushInt( /*cat::range(args).map(LAMBDA(v){ return v->fixedSize(); }).join() +*/ parentType->fixedSize(), funcCall->pos ));
+			// next line is commented out, bc. 'self' variable is temporarely passed as a STACK_VAL and not a STACK_REF:
+			// addInstruction(Instrs::PushInt( /*cat::range(args).map(LAMBDA(v){ return v->fixedSize(); }).join() +*/ parentType->fixedSize(), funcCall->pos ));
 		}
 
 		std::vector<TypeCWeakPtr> argsTmp = cat::range(funcCall->arguments)
@@ -338,7 +341,6 @@ TypeCWeakPtr CodeGenerator::evalFunction(const FunctionBaseCWeakPtr& func, const
 //		addInstruction(Instrs::WriteFA(0, pos));
 
 		// call function:
-		addInstruction(Instrs::PushCntrFR(+2, pos));
 		addInstruction(Instrs::Call(fn.___getPtr(), pos));
 
 
@@ -354,7 +356,7 @@ TypeCWeakPtr CodeGenerator::evalFunction(const FunctionBaseCWeakPtr& func, const
 	} else if (auto fn = func.as<BuiltinFunction>()) {
 		if (fn->_instructions.has_value()) {
 			foreach_c(instrId, fn->_instructions.value()) {
-				addInstruction(Instruction(instrId, None_{}, pos));
+				addInstruction(InterInstr(instrId, None_{}, pos));
 			}
 			return func->returnType();
 		} else {
@@ -369,7 +371,7 @@ TypeCWeakPtr CodeGenerator::evalFunction(const FunctionBaseCWeakPtr& func, const
 
 void CodeGenerator::evalStatement(const StatementCWeakPtr& stmt)
 {
-	NGPL_ASSERT(tempsOnStack == 0)
+	NGPL_ASSERT(tempsOnStack == 0);
 
 	if (auto expr = stmt.as<Expression>()) {
 		auto type = evalExpression(expr);
@@ -438,11 +440,11 @@ void CodeGenerator::evalStatement(const StatementCWeakPtr& stmt)
 		checkType(variable->type(), type, returnStmt->expr->pos);
 
 		// "save" result:
-		const auto returnSize = variable->fixedSize();
+		const auto returnSize = variable->address() + variable->fixedSize();
 		writeToVariable(variable, returnStmt->pos);
 		// cleanup stack:
 		cleanupStack(currentScope()->getFrameSize() - returnSize, returnStmt->pos);
-//		NGPL_ASSERT(tempsOnStack == 0)
+//		NGPL_ASSERT(tempsOnStack == 0);
 //		for (auto i = currentScope().salt; i --> returnSize;) {
 //			addInstruction(Instrs::PopVal(returnStmt->pos));
 //		}
@@ -459,7 +461,7 @@ void CodeGenerator::evalStatement(const StatementCWeakPtr& stmt)
 		throw SyntaxError(cat::SW() << "Unknow StatementType '" << stmt->getTypeName() << "'.", stmt->pos);
 	}
 
-	NGPL_ASSERT(tempsOnStack == 0)
+	NGPL_ASSERT(tempsOnStack == 0);
 
 }
 
@@ -481,7 +483,7 @@ void CodeGenerator::evalBlock(const BlockCWeakPtr& block)
 
 void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 {
-	NGPL_ASSERT(tempsOnStack == 0)
+	NGPL_ASSERT(tempsOnStack == 0);
 	if (auto varDecl = decl.as<VarDeclaration>()) {
 		const auto& name = decl->name;
 		if (hasVariable(name)) {
@@ -491,9 +493,9 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 		TypeCWeakPtr type = nullptr;
 		TypeCWeakPtr declType = nullptr;
 		if (varDecl->initExpr) {
-			NGPL_ASSERT(tempsOnStack == 0)
+			NGPL_ASSERT(tempsOnStack == 0);
 			type = evalExpression(varDecl->initExpr.getRaw());
-			NGPL_ASSERT(tempsOnStack == int64_t(type->fixedSize()))
+			NGPL_ASSERT(tempsOnStack == int64_t(type->fixedSize()));
 		}
 		if (varDecl->type) {
 			declType = getType(varDecl->type->name, varDecl->type->pos);
@@ -516,12 +518,12 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 			writeToHeapF(variable->address(), type->fixedSize(), varDecl->pos);
 		} else {
 			currentScope()->addVariable(name, new Variable(type, 0, ReferenceMode::STACK_VAL, true, isConst));
-			NGPL_ASSERT(tempsOnStack == int64_t(type->fixedSize()) or tempsOnStack == 0)
+			NGPL_ASSERT(tempsOnStack == int64_t(type->fixedSize()) or tempsOnStack == 0);
 			tempsOnStack = 0;
 		}
 
 		if (not varDecl->initExpr) {
-			NGPL_ASSERT(tempsOnStack == 0)
+			NGPL_ASSERT(tempsOnStack == 0);
 			for (auto i = type->fixedSize(); i --> 0;) {
 				addInstruction(Instrs::PushInt(0, decl->pos));
 			}
@@ -544,7 +546,8 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 
 		// handle self reference:
 		if (isMethod) {
-			currentScope()->addVariable("self", new Variable(selfType, 0, ReferenceMode::STACK_REF, true, false));
+			// 'self' variable is temporarely passed as a STACK_VAL and not a STACK_REF:
+			currentScope()->addVariable("self", new Variable(selfType, 0, ReferenceMode::STACK_VAL, true, false));
 		}
 		// handle function arguments / parameters:
 		std::vector<TypeCWeakPtr> argumentTypes;
@@ -573,21 +576,28 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 		}
 
 		const auto qualifier = isMethod ? selfType->asQualifiedCodeString() + "." : "";
-		FunctionWeakPtr function = new Function(funcDecl->name, qualifier, signature, returnType, isMethod);
+		FunctionWeakPtr function = new Function(funcDecl->name, qualifier, signature, returnType, selfType, false);
 		if (hasFunction(funcDecl->name, signature)) {
 			throw SyntaxError(cat::SW() << "redefinition of '" << funcDecl->name << "(" << signature.asCodeString() << ")'.", decl->pos);
 		}
 		(*(scopeStack.end()-2))->addFunction(funcDecl->name, std::move(signature), function.___getPtr());
-		codeContainerStack.push_back(function);
+		codeContainerStack.push_back(&function->body());
 
 		//currentScope()->addVariable("*return", returnType);
+		VariableCWeakPtr returnVar;
 		const auto oldFrameSize = currentScope()->getFrameSize();
-		currentScope()->setVariable("*return", new Variable(returnType, 0, ReferenceMode::STACK_VAL, false, false));
+		if (isMethod) {
+			// next lines added, bc. 'self' variable is temporarely passed as a STACK_VAL and not a STACK_REF:
+			Address retValAddr = selfType->fixedSize();
+			returnVar = currentScope()->setVariable("*return", new Variable(returnType, retValAddr, ReferenceMode::STACK_VAL, false, false));
+		} else {
+			returnVar = currentScope()->setVariable("*return", new Variable(returnType, 0, ReferenceMode::STACK_VAL, false, false));
+		}
 
 		// make sure there's enough room for the return value:
 		const auto newFrameSize = currentScope()->getFrameSize();
 		if (newFrameSize > oldFrameSize) {
-			NGPL_ASSERT(tempsOnStack == 0)
+			NGPL_ASSERT(tempsOnStack == 0);
 			addInstruction(Instrs::PushInt(0, decl->pos));
 			for (auto i = oldFrameSize+1; i < newFrameSize; ++i ) {
 				addInstruction(Instrs::Dup(0, decl->pos));
@@ -600,7 +610,7 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 
 		auto oldScope = currentScope();
 		// cleanup stack:
-		cleanupStack(oldScope->getFrameSize() - returnType->fixedSize(), funcDecl->pos);
+		cleanupStack(oldScope->getFrameSize() - (returnVar->address() + returnVar->fixedSize()), funcDecl->pos);
 //		for (auto i = oldScope.salt; i --> returnType->fixedSize();) {
 //			addInstruction(Instrs::PopVal(funcDecl->pos));
 //		}
@@ -624,7 +634,7 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 		const auto qualifier = parentType != nullptr ? parentType->asQualifiedCodeString() + "." : "";
 		TypeWeakPtr type = new Type(name, qualifier, 0 , false);
 		currentScope()->addType(name, TypePtr(type.___getPtr()));
-		codeContainerStack.push_back(type);
+		codeContainerStack.push_back(&type->body());
 		typeStack.push(type);
 		pushScope(true);
 
@@ -650,7 +660,7 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 		//setInstruction(jmpOverFuncDeclPos, Instrs::JumpFA(getCurrentPos(), typeDecl->pos));
 	}
 
-	NGPL_ASSERT(tempsOnStack == 0)
+	NGPL_ASSERT(tempsOnStack == 0);
 }
 
 //void CodeGenerator::writeBuiltinFunctions()
@@ -1047,7 +1057,7 @@ void CodeGenerator::writeToStackFrameF(Address relAddr, Address amount, const Po
 
 void CodeGenerator::readFromStackFrameD(Address relAddr, Address amount, const Position& pos)
 {
-	NGPL_ASSERT(relAddr == 0)
+	NGPL_ASSERT(relAddr == 0);
 	//auto stackAddrAddr = (currentScope()->getFrameSize() + tempsOnStack - relAddr - 1);
 	auto stackAddr = frameToStack(0) + 1; // amount ;//- 1; // amount + 1;
 	//addInstruction(Instrs::ReadStackF(stackAddrAddr, pos));
@@ -1066,8 +1076,8 @@ void CodeGenerator::readFromStackFrameD(Address relAddr, Address amount, const P
 
 void CodeGenerator::writeToStackFrameD(Address relAddr, Address amount, const Position& pos)
 {
-	NGPL_ASSERT(relAddr == 0)
-	NGPL_ASSERT2(false, "TBD!")
+	NGPL_ASSERT(relAddr == 0);
+	NGPL_ASSERT2(false, "TBD!");
 	auto stackAddrAddr = (currentScope()->getFrameSize() + tempsOnStack - relAddr);//+1;
 	const auto stackAddr = (currentScope()->getFrameSize() + tempsOnStack) - amount;//+1;
 	for (auto i = amount; i --> 0;) {
@@ -1119,7 +1129,7 @@ void CodeGenerator::writeToHeapD(Address relAddr, Address amount, const Position
 
 void CodeGenerator::cleanupStack(uint16_t amount, const Position& pos)
 {
-	NGPL_ASSERT(tempsOnStack == 0)
+	NGPL_ASSERT(tempsOnStack == 0);
 	for (auto i = amount; i --> 0;) {
 		addInstruction(Instrs::PopVal(pos));
 	}

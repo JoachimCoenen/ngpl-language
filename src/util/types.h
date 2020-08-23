@@ -26,6 +26,8 @@ class WriterObjectABC;
 
 namespace ngpl {
 
+using Address = int64_t;
+
 class IIntermediateCodePrintable { // TODO: find better name for IIntermediateCodePrintable.
 public:
 	virtual ~IIntermediateCodePrintable() {}

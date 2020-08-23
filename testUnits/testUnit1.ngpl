@@ -1,5 +1,5 @@
 unit Test
-
+/*
 func isPrime(number: Int) -> Bool {
     var i = 2
     while i < number - 1 do {
@@ -23,7 +23,7 @@ func isPrime(number: Int) -> Bool {
 //    }
 //}
 
-var maxNumber = 10000 // 10_000 
+var maxNumber = 100 // 10_000 
 
 func checkAllNumbersUpToX() {
     print("please enter a number")
@@ -33,9 +33,9 @@ func checkAllNumbersUpToX() {
     var n = 2
     while n <= imaxNumber do {
         if isPrime(n) do {
-            ///(String(n) + "    prime!")
+            //print(String(n) + "    prime!")
         else
-           // (String(n) + "    --")
+           //print(String(n) + "    --")
         }
         
         n = n + 1
@@ -53,8 +53,8 @@ if isPrime(maxNumber) do {
 else
 	print("What have you done?!")
 }
+*/
 
-/*
 func fib(i: Int) -> Int {
 	if i == 1 or i == 0 do {
 		return 1
@@ -66,7 +66,7 @@ func fib(i: Int) -> Int {
 func generateAllFibsUpToX() {
 	print("please enter a number")
 
-	var n = 20                       
+	var n = 10                       
 
 	var i = 0
 	while i <= n do {
@@ -75,9 +75,12 @@ func generateAllFibsUpToX() {
 	}
 }
 
-
+generateAllFibsUpToX()
+// */
+//*
 type Point = struct { 
 	var x: Int var y: Int var z: Int 
+	
 	func str() -> String {
 		return "Pointy(" + 
 			String(self.x) + ", " + 
@@ -85,6 +88,14 @@ type Point = struct {
 			String(self.z) + 
 		")"
 	}
+	
+	func rotate() {
+		var tmp = self.x
+		self.x = self.y
+		self.y = self.z
+		self.z = tmp
+	}
+	// */
 }
 
 func Point(x: Int, y: Int, z: Int) -> Point {
@@ -95,16 +106,6 @@ func Point(x: Int, y: Int, z: Int) -> Point {
 	return p
 }
 
-
-
-/*
-func String(p: Point) -> String {
-	let x = p.x
-	let y = p.y
-	let z = p.z
-	return "Point(" + String(x) + ", " + String(y) + String(z) + ")"
-}
-/ * /
 
 func String(p: Point) -> String {
 	return "Point(" + String(p.x) + ", " + String(p.y) + ", " + String(p.z) + ")"
@@ -127,8 +128,9 @@ print(y1)
 print(z1)
 let point2 = point
 print(point2)
-
-
+point2.rotate()
+print(point2)
+//*/
 
 
 type Rect = struct {
@@ -136,10 +138,13 @@ type Rect = struct {
 	var bottomRight: Point
 	
 	func str() -> String {
+		//return self.bottomRight.str()
+		
 		return "Rect(" + 
 			self.topLeft.str() + ", " + 
 			self.bottomRight.str() + 
 		")"
+		
 	}
 }
 
@@ -157,4 +162,4 @@ var rect: Rect = Rect(point, Point(10, 11, 12))
 
 print(rect.str())
 print("++++ END ++++")
-*/
+// */

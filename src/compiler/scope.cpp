@@ -1,19 +1,21 @@
 #include "scope.h"
 
+#include "ranges.h"
+
 namespace ngpl {
 
 VariableCWeakPtr Scope::setVariable(const std::string& name, VariablePtr&& variable)
 {
-	NGPL_ASSERT2(not variable->isTemporary(), "Variables, added to a Scope must not be temporary! (variable " + name + ")")
-	NGPL_ASSERT2(variables.find(name) == variables.end(), "Variable " + name + " is already in variables!")
+	NGPL_ASSERT2(not variable->isTemporary(), "Variables, added to a Scope must not be temporary! (variable " + name + ")");
+	NGPL_ASSERT2(variables.find(name) == variables.end(), "Variable " + name + " is already in variables!");
 	salt = std::max(salt, variable->address() + Address(variable->fixedSize()));
 	return (variables[name] = std::move(variable)).getRaw();
 }
 
 VariableCWeakPtr Scope::addVariable(const std::string& name, VariablePtr&& variable)
 {
-	NGPL_ASSERT2(not variable->isTemporary(), "Variables, added to a Scope must not be temporary! (variable " + name + ")")
-	NGPL_ASSERT2(variables.find(name) == variables.end(), "variable " + name + " is already in variables!")
+	NGPL_ASSERT2(not variable->isTemporary(), "Variables, added to a Scope must not be temporary! (variable " + name + ")");
+	NGPL_ASSERT2(variables.find(name) == variables.end(), "variable " + name + " is already in variables!");
 	if (variable->referenceMode() != ReferenceMode::HEAP_VAL) {
 		variable->_address = salt;
 		salt += variable->fixedSize();
@@ -23,14 +25,14 @@ VariableCWeakPtr Scope::addVariable(const std::string& name, VariablePtr&& varia
 
 void Scope::addType(const std::string& name, TypePtr&& type)
 {
-	NGPL_ASSERT2(types.find(name) == types.end(), "type " + name + " is already in types!")
+	NGPL_ASSERT2(types.find(name) == types.end(), "type " + name + " is already in types!");
 	(types[name] = std::move(type)).getRaw();
 }
 
 void Scope::addFunction(const std::string& name, FunctionSignature&& signature, FunctionPtr&& function)
 {
 	auto& overloads = functions[name];
-	NGPL_ASSERT2(overloads.find(signature) == overloads.end(), "function " + name + signature.asCodeString() + " is already in functions!")
+	NGPL_ASSERT2(overloads.find(signature) == overloads.end(), "function " + name + signature.asCodeString() + " is already in functions!");
 	(overloads[std::move(signature)] = std::move(function)).getRaw();
 }
 

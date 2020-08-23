@@ -4,13 +4,16 @@
 #include "type.h"
 #include "../vm/instruction.h"
 
+#include "ranges.h"
+
 namespace {
 namespace itm = ngpl::intermediate;
 }
 
-using Instrs = ngpl::Instructions;
 
 namespace ngpl {
+
+namespace Instrs = instructions;
 
 Linker::Linker(std::vector<UnitCWeakPtr>&& units)
 	: _units(std::move(units))
@@ -18,13 +21,13 @@ Linker::Linker(std::vector<UnitCWeakPtr>&& units)
 
 void Linker::generateInstructionStream()
 {
-	_instructions.push_back(Instructions::Nop(Position()));
+	_instructions.push_back(Instrs::Nop(Position()));
 	foreach_c(unit, _units) {
 		generateInstructionStream(unit->scope());
 	}
-	_instructions[0] = Instructions::JumpFA(_instructions.size(), Position());
+	_instructions[0] = Instrs::JumpFA(_instructions.size(), Position());
 	foreach_c(unit, _units) {
-		generateInstructionStream(unit);
+		generateInstructionStream(&unit->body());
 	}
 
 }
@@ -32,12 +35,14 @@ void Linker::generateInstructionStream()
 void Linker::generateInstructionStream(itm::IntermediateCodeContainerCWeakPtr container)
 {
 	foreach_c(code, container->instructions) {
-		if (auto instr = code.as<itm::IntermediateInstruction>()) {
-			_instructions.push_back(instr->instr);
-//			if (instr->instr.id() == InstructionID::CALL) {
-//				auto* func = static_cast<const BuiltinFunction*>(instr->instr.data().getValue<const void*>());
-//				_instructions.back() = Instructions::Call(&func->_body, instr->instr.pos());
-//			}
+		if (auto instr = code.as<itm::IntermediateSimpleInstruction>()) {
+			if (instr->id() == InstructionID::CALL) {
+				auto func = FunctionBaseCWeakPtr(static_cast<const FunctionBase*>(instr->data().template getValue<const void*>()));
+				if (auto fn = func.as<Function>()) {
+					_instructions.push_back(Instrs::PushCntrFR(+2, instr->pos()));
+				}
+			}
+			_instructions.push_back(Instruction(instr->id(), instr->data(), instr->pos()));
 		} else if (auto ifInstr = code.as<itm::IntermediateIf>()) {
 			generateInstructionStreamIf(ifInstr);
 		} else if (auto loopInstr = code.as<itm::IntermediateLoop>()) {
@@ -45,7 +50,7 @@ void Linker::generateInstructionStream(itm::IntermediateCodeContainerCWeakPtr co
 		} else if (auto specialInstr = code.as<itm::IntermediateSpecial>()) {
 			generateInstructionStreamSpecial(specialInstr);
 		} else {
-			throw cat::Exception("unhndeled IntermediateCode sub type.");
+			throw cat::Exception("unhndeled IntermediateInstruction sub type.");
 		}
 	}
 
@@ -63,14 +68,15 @@ void Linker::generateInstructionStream(ScopeCWeakPtr scope)
 			  .map_c(LAMBDA(funcPair) { return funcPair.second.getRaw(); })
 	) {
 		_functionEntryPoints[func->asQualifiedCodeString()] = _instructions.size();
-		generateInstructionStream(func);
+		generateInstructionStream(&func->body());
 	}
 
 	foreach_c(type, cat::range(scope->getTypes())
 			  .map_c(LAMBDA(typePair) { return typePair.second.getRaw(); })
 	) {
 		_functionEntryPoints[type->asQualifiedCodeString()] = _instructions.size();
-		generateInstructionStream(type);
+		generateInstructionStream(type->scope());
+		generateInstructionStream(&type->body());
 	}
 
 }
@@ -143,7 +149,7 @@ void Linker::linkFunctions()
 			.filter(LAMBDA(instr) { return instr.id() == InstructionID::CALL2; })
 			.forEach([&](auto& instr){
 						 Address funcAddress = _functionEntryPoints[instr.data().template getValue<std::string>()];
-						 instr = Instructions::JumpFA(funcAddress, instr.pos());
+						 instr = Instrs::JumpFA(funcAddress, instr.pos());
 
 					 });
 	cat::range(_instructions)
@@ -151,12 +157,13 @@ void Linker::linkFunctions()
 			.forEach([&](auto& instr){
 						auto func = FunctionBaseCWeakPtr(static_cast<const FunctionBase*>(instr.data().template getValue<const void*>()));
 						if (auto fn = func.as<Function>()) {
-							Address funcAddress = _functionEntryPoints[fn->asQualifiedCodeString()];
-							instr = Instructions::JumpFA(funcAddress, instr.pos());
-						} /*else {
+							auto qualifiedCodeString = fn->asQualifiedCodeString();
+							Address funcAddress = _functionEntryPoints.at(qualifiedCodeString);
+							instr = Instrs::JumpFA(funcAddress, instr.pos());
+						} else {
 							auto fn2 = func.as<BuiltinFunction>();
-							instr = Instructions::Call(&fn2->_body, instr.pos());
-						}*/
+							instr = Instrs::Call(&fn2->_body, instr.pos());
+						}
 
 					 });
 }

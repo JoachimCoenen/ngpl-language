@@ -2,7 +2,6 @@
 #define CODEGENERATOR_H
 
 #include "intermediate/intermediateCode.h"
-#include "../vm/instruction.h"
 #include "../vm/value.h"
 #include "../vm/vm_util.h"
 #include "../language/ast.h"
@@ -59,6 +58,8 @@ public:
 	static const std::unordered_map<std::string, std::unordered_map<FunctionSignature, BuiltinFunction>> builtinFunctions;
 
 protected:
+	using InterInstr = intermediate::IntermediateSimpleInstruction;
+
 	VariableCWeakPtr tryGetVariable(const std::string& name) const;
 	VariableCWeakPtr getVariable(const std::string& name, const Position& pos) const;
 	Variable evalVariableReference(const VariableReferenceCWeakPtr& variable);
@@ -110,20 +111,20 @@ protected:
 
 	void cleanupStack(uint16_t amount, const Position& pos);
 
-	inline InstructionPos addInstruction(Instruction&& instr) {
-		currentInstructioins()->instructions.push_back(new itm::IntermediateInstruction(std::move(instr)));
-		tempsOnStack += ngpl::Instructions::stackDeltaForInstructions[instr.id()];
+	inline InstructionPos addInstruction(InterInstr&& instr) {
+		currentInstructioins()->instructions.push_back(new itm::IntermediateSimpleInstruction(std::move(instr)));
+		tempsOnStack += intermediate::Instructions::stackDeltaForInstructions[instr.id()];
 		return getCurrentPos() - 1;
 	}
 
-	inline InstructionPos addInstruction(itm::IntermediateCodePtr&& instr) {
+	inline InstructionPos addInstruction(itm::IntermediateInstructionPtr&& instr) {
 		currentInstructioins()->instructions.push_back(std::move(instr));
 		//tempsOnStack += ngpl::Instructions::stackDeltaForInstructions[instr.id()];
 		return getCurrentPos() - 1;
 	}
 
-	inline void setInstruction(const InstructionPos& pos, Instruction&& instr) {
-		currentInstructioins()->instructions[pos] = new itm::IntermediateInstruction(std::move(instr));
+	inline void setInstruction(const InstructionPos& pos, InterInstr&& instr) {
+		currentInstructioins()->instructions[pos] = new itm::IntermediateSimpleInstruction(std::move(instr));
 	}
 
 //	inline const Instruction& getInstruction(const InstructionPos& pos) const {

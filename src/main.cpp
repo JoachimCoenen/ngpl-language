@@ -9,6 +9,8 @@
 //#include "vm/evaluationContext.h"
 #include "vm/instructionExecuter.h"
 
+#include "mainHelper.h"
+
 #include "toStringUtils.h"
 #include "cat_utils.h"
 
@@ -58,18 +60,16 @@ struct Timer {
 	}
 };
 
-
-
-
 using cat::range;
+
 
 void writeSrcStr(cat::WriterObjectABC& s, const std::string& src) {
 	s += cat::nlIndent;
 	s += src;
 	s += cat::nlIndent;
-	s += cat::IntRange(0ull, src.length()-1).map( LAMBDA_s(v, char(v % 10) + '0') ).toContainer<std::string>();
+	s += cat::IntRange(0ull, src.length()).map( LAMBDA_s(v, char(v % 10) + '0') ).toContainer<std::string>();
 	s += cat::nlIndent;
-	s += cat::IntRange(0ull, src.length()-1).map( LAMBDA_s(v, v % 10 == 0 ? char(v / 10) + '0' : ' ') ).toContainer<std::string>();
+	s += cat::IntRange(0ull, src.length()).map( LAMBDA_s(v, v % 10 == 0 ? char(v / 10) + '0' : ' ') ).toContainer<std::string>();
 }
 
 
@@ -80,14 +80,10 @@ ngpl::RootPtr parseFile(const std::string str) {
 	return p.parseRoot();
 }
 
-static const std::string NGPL_SOURCE_EXTENSION = ".ngpl";
-static const std::string NGPL_COMPILED_EXTENSION = ".ngcu";
-static const std::string TEST_UNITS_DIR = "C:/Users/Joachim Coenen/Documents/Privat/Programieren/NGPL_lang/testUnits/";
-static const std::string TEST_UNIT1_PATH = TEST_UNITS_DIR + "testUnit1";
-
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 {
 
+	using namespace ngpl::main;
 	std::string str1 = "hello beautiful world!";
 	std::string str2 = "print(759)kkkkkkkkkkkkkkk";
 	cat::OW out = cat::OW(std::cout);
@@ -95,7 +91,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 
 	std::string src;
 	{
-		std::ifstream infile(TEST_UNIT1_PATH + NGPL_SOURCE_EXTENSION);
+		std::ifstream infile(TEST_UNIT_PATH + NGPL_SOURCE_EXTENSION);
 		std::stringstream buffer;
 		buffer << infile.rdbuf();
 		src = buffer.str();
@@ -145,7 +141,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 		if (compiledSuccessfull) {
 			//write to File:
 			{
-				auto outFile = cat::FW(new std::ofstream(TEST_UNIT1_PATH + NGPL_COMPILED_EXTENSION));
+				auto outFile = cat::FW(new std::ofstream(TEST_UNIT_PATH + NGPL_COMPILED_EXTENSION));
 				unit->print(outFile);
 			}
 
@@ -154,7 +150,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 
 			//write to File:
 			{
-				auto outFile = cat::FW(new std::ofstream(TEST_UNIT1_PATH + "_opt" + NGPL_COMPILED_EXTENSION));
+				auto outFile = cat::FW(new std::ofstream(TEST_UNIT_PATH + "_opt" + NGPL_COMPILED_EXTENSION));
 				unit->print(outFile);
 			}
 
@@ -220,3 +216,4 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 
 	return 0; //a.exec();
 }
+

@@ -9,7 +9,6 @@
 namespace ngpl {
 
 using InstructionPos = int64_t;
-using Address = int64_t;
 #define DECLARE_OPERATOR(rType, name, lhsType, rhsType) rType operator name (const lhsType& lhs, const rhsType& rhs)
 
 #define IMPLEMENT_OPERATOR(rType, name, lhsType, rhsType, lhsCast, rhsCast) DECLARE_OPERATOR(rType, name, lhsType, rhsType) { \

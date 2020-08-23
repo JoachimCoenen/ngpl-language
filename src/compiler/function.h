@@ -1,12 +1,12 @@
 #ifndef FUNCTION_H
 #define FUNCTION_H
 
-#include "instructionsContainer.h"
+#include "intermediate/intermediateCode.h"
 #include "member.h"
 #include "type.h"
-#include "../vm/instruction.h"
 #include "../vm/value.h"
 #include "../vm/vm_util.h"
+#include "../util/instructionID.h"
 #include "../util/types.h"
 
 #include "cat_stack.h"
@@ -18,7 +18,7 @@
 namespace ngpl {
 
 
-PTRS_FOR_CLASS(FunctionBase)
+PTRS_FOR_CLASS(FunctionBase);
 class FunctionBase : public Member
 {
 public:
@@ -27,12 +27,14 @@ public:
 		const std::string& qualifier,
 		const FunctionSignature& signature,
 		const TypeCWeakPtr& returnType,
-		bool isMethod
+		const TypeCWeakPtr& selfType,
+		bool hasSideEffect
 	)
 	: Member(name, qualifier),
 	  _signature(signature),
-	  _returnType(std::move(returnType)),
-	  _isMethod(isMethod)
+	  _returnType(returnType),
+	  _selfType(selfType),
+	  _hasSideEffect(hasSideEffect)
 	{}
 
 	virtual ~FunctionBase() {};
@@ -40,7 +42,9 @@ public:
 	uint_fast16_t argumentCount() const { return _signature.argumentCount(); }
 	const FunctionSignature& signature() const { return _signature; }
 	const TypeCWeakPtr returnType() const { return _returnType; }
-	bool isMethod() const { return _isMethod; }
+	const TypeCWeakPtr selfType() const { return _selfType; }
+	bool isMethod() const { return _selfType != nullptr; }
+	bool hasSideEffect() const { return _hasSideEffect; }
 
 	int32_t stackDelta() const;
 	int32_t argumentsStackSize() const;
@@ -55,13 +59,13 @@ public:
 protected:
 	FunctionSignature _signature;
 	TypeCWeakPtr _returnType;
-	bool _isMethod;
-
+	TypeCWeakPtr _selfType;
+	bool _hasSideEffect;
 };
 
 
 
-PTRS_FOR_CLASS(BuiltinFunction)
+PTRS_FOR_CLASS(BuiltinFunction);
 class BuiltinFunction: public FunctionBase
 {
 public:
@@ -70,10 +74,11 @@ public:
 		const std::string& qualifier,
 		const FunctionSignature& signature,
 		const TypeCWeakPtr& returnType,
+		bool hasSideEffect,
 		const std::function<Value(cat::Stack<Value>&)>& body,
 		const std::optional<std::vector<InstructionID>>& instructions
 	)
-		: FunctionBase(name, qualifier, signature, std::move(returnType), false),
+		: FunctionBase(name, qualifier, signature, returnType, nullptr, hasSideEffect),
 		  _body(body),
 		  _instructions(instructions)
 	{}
@@ -89,8 +94,8 @@ public:
 };
 
 
-PTRS_FOR_CLASS(Function)
-class Function: public FunctionBase, public InstructionsContainer
+PTRS_FOR_CLASS(Function);
+class Function: public FunctionBase, public IIntermediateCodePrintable//, public InstructionsContainer
 {
 public:
 	Function(
@@ -98,13 +103,16 @@ public:
 	const std::string& qualifier,
 	const FunctionSignature& signature,
 	const TypeCWeakPtr& returnType,
-	bool isMethod
+	const TypeCWeakPtr& selfType,
+	bool hasSideEffect
 	//const InstructionPos body
 	)
-	: FunctionBase(name, qualifier, signature, std::move(returnType), isMethod)//,
+	: FunctionBase(name, qualifier, signature, returnType, selfType, hasSideEffect)//,
 	 // _body(body)
 	{}
 
+	const intermediate::IntermediateCodeContainer& body() const { return _body; }
+	intermediate::IntermediateCodeContainer& body() { return _body; }
 	//const std::string& name() const { return _name; }
 	//const InstructionPos& body() const { return _body; }
 
@@ -112,9 +120,12 @@ public:
 //        return cat::SW() << _name << "(" << _signature.asCodeString() << ") -> " << returnType()->asCodeString();
 //    }
 	cat::WriterObjectABC& print(cat::WriterObjectABC& s) const override;
+
+	void recalculteSideEffects();
 protected:
 	//std::string _name;
 	//InstructionPos _body;
+	intermediate::IntermediateCodeContainer _body;
 
 };
 

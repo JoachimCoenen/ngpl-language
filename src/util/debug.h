@@ -51,8 +51,8 @@ static inline void NOP() {} // null operation
 #undef NGPL_ASSERT
 #if DEBUG_ASSERTIONS
 	#if defined(_UNICODE) || defined(UNICODE)
-	#define NGPL_ASSERT(condition) ngpl::util::debug::ngpl_assert(condition, #condition, _CRT_WIDE(__FILE__), __LINE__);
-	#define NGPL_ASSERT2(condition, msg) ngpl::util::debug::ngpl_assert(condition, msg, _CRT_WIDE(__FILE__), __LINE__);
+	#define NGPL_ASSERT(condition) ngpl::util::debug::ngpl_assert(condition, #condition, _CRT_WIDE(__FILE__), __LINE__)
+	#define NGPL_ASSERT2(condition, msg) ngpl::util::debug::ngpl_assert(condition, msg, _CRT_WIDE(__FILE__), __LINE__)
 	#else // defined(_UNICODE) || defined(UNICODE)
 	#define NGPL_ASSERT(condition) ngpl::util::debug::ngpl_assert(condition, #condition, __FILE__, __LINE__);
 	#define NGPL_ASSERT2(condition, msg) ngpl::util::debug::ngpl_assert(condition, msg, __FILE__, __LINE__);

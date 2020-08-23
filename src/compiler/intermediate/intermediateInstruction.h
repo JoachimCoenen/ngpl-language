@@ -1,17 +1,32 @@
-#ifndef INSTRUCTION_H
-#define INSTRUCTION_H
+#ifndef INTERMEDIATEINSTRUCTION_H
+#define INTERMEDIATEINSTRUCTION_H
+#if 0
+#include "../../language/position.h"
 
-#include "../language/position.h"
-
-#include "vm_util.h"
-#include "../util/instructionID.h"
-#include "../util/types.h"
+#include "../../vm/vm_util.h"
+#include "../../util/types.h"
 
 #include "cat_variant.h"
 
 #include <string>
 
 namespace ngpl {
+
+struct None_ {};
+inline cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const None_&) {
+	return s += "   ";
+}
+
+#define INSTRUCTION_FACTORY0(instrName, stackDelta, hasSideEffect, funcName) instrName,
+#define INSTRUCTION_FACTORY1(instrName, stackDelta, hasSideEffect, funcName, argType, arg) instrName,
+enum class InstructionID {
+#include "../../util/instructions_inc.h"
+
+};
+#undef INSTRUCTION_FACTORY0
+#undef INSTRUCTION_FACTORY1
+cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const InstructionID& v);
+
 
 struct Instruction: public IIntermediateCodePrintable {
 	InstructionID id() const { return _id; }
@@ -42,21 +57,42 @@ protected:
 cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const Instruction& v);
 
 
-namespace instructions {
+
+
+
+class Instructions {
+private:
+	std::array<int8_t, 256> array;
+
+	Instructions();
+	Instructions(const Instructions&) = delete;
+	Instructions(Instructions&&) = delete;
+	Instructions& operator =(const Instructions&) = delete;
+	Instructions& operator =(Instructions&&) = delete;
+
+public:
+
+	int8_t operator[](InstructionID index) const {
+		return array[static_cast<uint8_t>(index)];
+	}
+
+	static const Instructions stackDeltaForInstructions;
+	//int64_t getStackDeltaForInstruction();
 
 #define INSTRUCTION_FACTORY0(instrName, stackDelta, hasSideEffect, funcName)		\
-	static inline auto funcName(const Position& pos) {       \
+	static auto funcName(const Position& pos) {       \
 	return Instruction(InstructionID::instrName, None_{}, pos); \
 	}
 
 #define INSTRUCTION_FACTORY1(instrName, stackDelta, hasSideEffect, funcName, argType, arg)		\
-	static inline auto funcName(argType arg, const Position& pos) {   \
+	static auto funcName(argType arg, const Position& pos) {   \
 		return Instruction(InstructionID::instrName, arg, pos);           \
 	}
-	#include "../util/instructions_inc.h"
-};
+	#include "../../util/instructions_inc.h"
 #undef INSTRUCTION_FACTORY0
 #undef INSTRUCTION_FACTORY1
+};
 
 }
-#endif // INSTRUCTION_H
+#endif
+#endif // INTERMEDIATEINSTRUCTION_H

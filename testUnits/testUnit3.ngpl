@@ -1,0 +1,125 @@
+unit Test
+
+type Test1ReturnType = struct {
+	var val3: Int
+	var val5: Int
+	var val6: Int
+	var val1: Int
+}
+
+func test1(val1: Int, val2: Int, val3: Int, val4: Int) -> Test1ReturnType {
+	var result: Test1ReturnType
+	result.val1 = -val1
+	result.val3 = val3
+	let val6 = val2 + 3
+	let val7 = val2 % val6
+	result.val5 = val4 + val7
+	result.val6 = val6
+	
+	//let str2 = String(val2)
+	print(String(val2))
+	print(String(val7))
+	print(String(val3))
+	
+	return result
+}
+
+
+type Test2ReturnType = struct {
+	var val1: Int
+}
+
+func test2(val1: Int) -> Test2ReturnType {
+	var result: Test2ReturnType
+	result.val1 = -val1
+	
+	print(String(val1))
+	
+	return result
+}
+
+
+func test2b(val1: Int) -> Test2ReturnType {
+	var result: Test2ReturnType
+	let val2 = 3 + val1
+	result.val1 = 7 - val2
+	
+	print(String(val2))
+	print(String(val1))
+	
+	return result
+}
+
+
+type Test3ReturnType = struct {
+	var val1: Int
+	var val2: Int
+}
+
+func test3(val1: Int, val2: Int) -> Test3ReturnType {
+	var result: Test3ReturnType
+	result.val2 = -val1
+	let val6 = val2 + 3
+	let val7 = val2 % val6
+	result.val1 = val7
+	
+	//let str2 = String(val2)
+	print(String(val2))
+	print(String(val7))
+	print(String(val1))
+	
+	return result
+}
+
+print("")
+print("++++ START ++++")
+print("")
+
+print("test2:")
+let r2 = test2(7)
+print("---- ----- ----")
+print(String(r2.val1))
+print(String(-7))
+
+print("")
+print("---- ----- ----")
+print("test2b:")
+let r2b = test2b(7)
+print("---- ----- ----")
+print(String(r2b.val1))
+print(String(-3))
+
+print("")
+print("---- ----- ----")
+print("test3:")
+let r3 = test3(7, 13)
+print("---- ----- ----")
+print(String(r3.val1))
+print(String(r3.val2))
+print(String(3))
+print(String(-7))
+
+
+
+
+
+
+
+print("")
+print("---- ----- ----")
+print("test1:")
+print("")
+let r1 = test1(1, 2, 3, 4)
+
+print("---- ----- ----")
+
+print(String(r1.val3))
+print(String(r1.val5))
+print(String(r1.val6))
+print(String(r1.val1))
+print(String(-(1)))
+
+print("")
+print("++++ END ++++")
+print("")
+// */

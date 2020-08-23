@@ -23,7 +23,7 @@ cat::WriterObjectABC& Unit::print(cat::WriterObjectABC& s) const
 	{
 		scope()->print(s);
 		s += cat::nl;
-		InstructionsContainer::print(s);
+		body().print(s);
 	}
 	s.decIndent();
 

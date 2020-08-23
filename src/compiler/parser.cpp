@@ -47,7 +47,7 @@ UnitDeclarationPtr Parser::parseUnit()
 	} else if (tk.content == "library") {
 		unitNature = UnitNature::LIBRARY;
 	} else {
-		NGPL_ASSERT(false)
+		NGPL_ASSERT(false);
 		unitNature = UnitNature::LIBRARY; // make ther warnings happy...
 	}
 

@@ -36,7 +36,7 @@ cat::WriterObjectABC& Type::print(cat::WriterObjectABC& s) const
 			s += s2.str();
 			s += cat::nl;
 		}
-		InstructionsContainer::print(s);
+		body().print(s);
 	}
 	s.decIndent();
 

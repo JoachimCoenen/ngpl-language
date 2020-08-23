@@ -1,7 +1,5 @@
 #include "instructionExecuter.h"
 
-#include "../compiler/function.h"
-
 #include "toStringUtils.h"
 
 namespace ngpl {
@@ -41,13 +39,9 @@ void InstructionExecuter::executeInstruction()
 		++_programmCounter;
 	} break;
 	case InstrID::CALL: {
+		auto* func = static_cast<const std::function<Value(cat::Stack<Value>&)>*>(data.getValue<const void*>());
 
-		auto* func = static_cast<const BuiltinFunction*>(data.getValue<const void*>());
-	//        for (auto i = func->argumentCount(); i --> 0;) {
-	//            args.push_back(_temporaryStack.pop());
-	//        }
-		//std::string DBGVAL = cat::SW() << _temporaryStack.peek();
-		auto result = (func->_body)(_temporaryStack);
+		auto result = (*func)(_temporaryStack);
 		if (not result.hasValue<None>()) {
 			_temporaryStack.push(std::move(result));
 		}

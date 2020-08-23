@@ -2,7 +2,7 @@
 #define TYPE_H
 
 #include "../util/types.h"
-#include "instructionsContainer.h"
+#include "intermediate/intermediateCode.h"
 #include "member.h"
 
 #include "cat_utils.h"
@@ -19,7 +19,7 @@ namespace ngpl {
 PTRS_FOR_CLASS(Scope)
 
 PTRS_FOR_CLASS(Type)
-class Type: public InstructionsContainer, public Member
+class Type: public IIntermediateCodePrintable, public Member
 {
 public:
 	Type();
@@ -28,6 +28,8 @@ public:
 
 	ScopePtr& scope() { return _scope; }
 	ScopeCWeakPtr scope() const { return _scope.getRaw(); }
+	const intermediate::IntermediateCodeContainer& body() const { return _body; }
+	intermediate::IntermediateCodeContainer& body() { return _body; }
 	bool isBasic() const { return _isBasic; }
 	uint64_t& fixedSize() { return _fixedSize; }
 	uint64_t fixedSize() const { return _fixedSize; }
@@ -39,6 +41,7 @@ public:
 
 protected:
 	ScopePtr _scope;
+	intermediate::IntermediateCodeContainer _body;
 	uint64_t _fixedSize;
 	bool _isBasic;
 	bool _isFinished;

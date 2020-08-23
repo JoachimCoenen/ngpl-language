@@ -1,7 +1,7 @@
 #ifndef UNIT_H
 #define UNIT_H
 
-#include "instructionsContainer.h"
+#include "intermediate/intermediateCode.h"
 #include "scope.h"
 #include "../language/unitNature.h"
 //#include "../util/types.h"
@@ -18,7 +18,7 @@ cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const UnitNature& v)
 
 
 PTRS_FOR_CLASS(Unit)
-class Unit: public InstructionsContainer
+class Unit: public IIntermediateCodePrintable
 {
 public:
 	Unit();
@@ -27,6 +27,8 @@ public:
 	const std::string& name() const { return _name; }
 	ScopePtr& scope() { return _scope; }
 	ScopeCWeakPtr scope() const { return _scope.getRaw(); }
+	const intermediate::IntermediateCodeContainer& body() const { return _body; }
+	intermediate::IntermediateCodeContainer& body() { return _body; }
 	UnitNature unitNature() const { return _unitNature; }
 
 //	bool isGlobal() const override {
@@ -38,6 +40,7 @@ public:
 protected:
 	std::string _name;
 	ScopePtr _scope;
+	intermediate::IntermediateCodeContainer _body;
 	UnitNature _unitNature;
 };
 

@@ -19,27 +19,30 @@ win32:CONFIG(debug,   debug|release): QMAKE_CXXFLAGS += -Wno-comment
 
 
 SOURCES += \
-        src/compiler/codeGenerator.cpp \
-        src/compiler/function.cpp \
-        src/compiler/intermediate/intermediateCode.cpp \
-        src/compiler/linker.cpp \
-        src/compiler/member.cpp \
-        src/compiler/optimizer.cpp \
-        src/compiler/parser.cpp \
-        src/compiler/scope.cpp \
-        src/compiler/stackFrame.cpp \
-        src/compiler/syntaxError.cpp \
-        src/compiler/tokenizer.cpp \
-        src/compiler/type.cpp \
-        src/compiler/unit.cpp \
-        src/compiler/variable.cpp \
-        src/language/ast.cpp \
-        src/language/token.cpp \
-        src/main.cpp \
-        src/vm/instruction.cpp \
-        src/vm/instructionExecuter.cpp \
-        src/vm/object.cpp \
-        src/vm/value.cpp
+	src/compiler/codeGenerator.cpp \
+	src/compiler/function.cpp \
+	src/compiler/intermediate/intermediateCode.cpp \
+	src/compiler/intermediate/intermediateInstruction.cpp \
+	src/compiler/linker.cpp \
+	src/compiler/member.cpp \
+	src/compiler/optimizer.cpp \
+	src/compiler/parser.cpp \
+	src/compiler/scope.cpp \
+	src/compiler/stackFrame.cpp \
+	src/compiler/syntaxError.cpp \
+	src/compiler/tokenizer.cpp \
+	src/compiler/type.cpp \
+	src/compiler/unit.cpp \
+	src/compiler/variable.cpp \
+	src/language/ast.cpp \
+	src/language/token.cpp \
+	src/main.cpp \
+	src/mainHelper.cpp \
+	src/util/instructionID.cpp \
+	src/vm/instruction.cpp \
+	src/vm/instructionExecuter.cpp \
+	src/vm/object.cpp \
+	src/vm/value.cpp
 
 # SUBDIRS = language
 
@@ -57,8 +60,9 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 HEADERS += \
     src/compiler/codeGenerator.h \
     src/compiler/function.h \
-    src/compiler/instructionsContainer.h \
-    src/compiler/intermediate/intermediateCode.h \
+	src/compiler/instructionsContainer.h \
+	src/compiler/intermediate/intermediateCode.h \
+	src/compiler/intermediate/intermediateInstruction.h \
     src/compiler/linker.h \
     src/compiler/member.h \
     src/compiler/optimizer.h \
@@ -74,11 +78,13 @@ HEADERS += \
     src/language/position.h \
     src/language/token.h \
     src/language/unitNature.h \
+	src/mainHelper.h \
     src/util/debug.h \
+	src/util/instructionID.h \
+	src/util/instructions_inc.h \
     src/util/types.h \
     src/vm/instruction.h \
-    src/vm/instructionExecuter.h \
-    src/vm/instructions_inc.h \
+	src/vm/instructionExecuter.h \
     src/vm/object.h \
     src/vm/value.h \
     src/vm/vm_util.h

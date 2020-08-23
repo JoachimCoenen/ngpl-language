@@ -1,6 +1,6 @@
 #include "parser.h"
 
-#include "../util/debug.h"
+#include "util/debug.h"
 
 #include "syntaxError.h"
 

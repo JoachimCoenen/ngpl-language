@@ -2,9 +2,9 @@
 #define VARIABLE_H
 
 #include "type.h"
-#include "../vm/value.h"
+#include "vm/value.h"
 
-#include "../util/types.h"
+#include "util/types.h"
 
 namespace ngpl {
 

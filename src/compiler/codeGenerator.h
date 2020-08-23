@@ -2,15 +2,15 @@
 #define CODEGENERATOR_H
 
 #include "intermediate/intermediateCode.h"
-#include "../vm/value.h"
-#include "../vm/vm_util.h"
-#include "../language/ast.h"
+#include "vm/value.h"
+#include "vm/vm_util.h"
+#include "language/ast.h"
 
-#include "function.h"
-#include "scope.h"
+#include "language/function.h"
+#include "language/scope.h"
 #include "syntaxError.h"
-#include "type.h"
-#include "unit.h"
+#include "language/type.h"
+#include "language/unit.h"
 
 #include <functional>
 #include <string>

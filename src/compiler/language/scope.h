@@ -1,7 +1,7 @@
 #ifndef SCOPE_H
 #define SCOPE_H
 
-#include "../vm/vm_util.h"
+#include "vm/vm_util.h"
 
 #include "type.h"
 #include "function.h"

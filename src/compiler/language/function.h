@@ -1,13 +1,13 @@
 #ifndef FUNCTION_H
 #define FUNCTION_H
 
-#include "intermediate/intermediateCode.h"
+#include "compiler/intermediate/intermediateCode.h"
 #include "member.h"
 #include "type.h"
-#include "../vm/value.h"
-#include "../vm/vm_util.h"
-#include "../util/instructionID.h"
-#include "../util/types.h"
+#include "vm/value.h"
+#include "vm/vm_util.h"
+#include "util/instructionID.h"
+#include "util/types.h"
 
 #include "cat_stack.h"
 #include "toStringUtils.h"

@@ -1,9 +1,9 @@
 #ifndef INTERMEDIATECODE_H
 #define INTERMEDIATECODE_H
 
-#include "../../language/position.h"
-#include "../../util/instructionID.h"
-#include "../../util/types.h"
+#include "language/position.h"
+#include "util/instructionID.h"
+#include "util/types.h"
 #include "cat_variant.h"
 
 #include <vector>
@@ -96,7 +96,7 @@ public:
 	static auto funcName(argType arg, const Position& pos) {   \
 		return IntermediateSimpleInstruction(InstructionID::instrName, arg, pos);           \
 	}
-	#include "../../util/instructions_inc.h"
+	#include "util/instructions_inc.h"
 #undef INSTRUCTION_FACTORY0
 #undef INSTRUCTION_FACTORY1
 };

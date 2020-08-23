@@ -5,7 +5,7 @@
 #include "cat_utils.h"
 #include "cat_typing.h"
 
-#include "../util/debug.h"
+#include "util/debug.h"
 
 namespace ngpl {  // Lexing
 

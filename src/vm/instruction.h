@@ -4,8 +4,8 @@
 #include "../language/position.h"
 
 #include "vm_util.h"
-#include "../util/instructionID.h"
-#include "../util/types.h"
+#include "util/instructionID.h"
+#include "util/types.h"
 
 #include "cat_variant.h"
 
@@ -53,7 +53,7 @@ namespace instructions {
 	static inline auto funcName(argType arg, const Position& pos) {   \
 		return Instruction(InstructionID::instrName, arg, pos);           \
 	}
-	#include "../util/instructions_inc.h"
+	#include "util/instructions_inc.h"
 };
 #undef INSTRUCTION_FACTORY0
 #undef INSTRUCTION_FACTORY1

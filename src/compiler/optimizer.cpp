@@ -1,8 +1,8 @@
 #include "optimizer.h"
 
-#include "unit.h"
+#include "language/unit.h"
 //#include "intermediate/intermediateCode.h"
-#include "../vm/value.h"
+#include "vm/value.h"
 
 #include "ranges.h"
 

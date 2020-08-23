@@ -1,7 +1,7 @@
 #ifndef OPTIMIZER_H
 #define OPTIMIZER_H
 
-#include "../util/types.h"
+#include "util/types.h"
 
 namespace ngpl {
 

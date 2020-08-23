@@ -1,10 +1,10 @@
 #ifndef UNIT_H
 #define UNIT_H
 
-#include "intermediate/intermediateCode.h"
+#include "compiler/intermediate/intermediateCode.h"
 #include "scope.h"
-#include "../language/unitNature.h"
-//#include "../util/types.h"
+#include "language/unitNature.h"
+//#include "util/types.h"
 
 #include "cat_utils.h"
 #include "cat_hash.h"

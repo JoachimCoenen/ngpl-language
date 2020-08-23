@@ -1,8 +1,8 @@
 #include "linker.h"
 
-#include "function.h"
-#include "type.h"
-#include "../vm/instruction.h"
+#include "language/function.h"
+#include "language/type.h"
+#include "vm/instruction.h"
 
 #include "ranges.h"
 

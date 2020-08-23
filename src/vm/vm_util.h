@@ -1,7 +1,7 @@
 #ifndef VM_UTIL_H
 #define VM_UTIL_H
 
-#include "../util/debug.h"
+#include "util/debug.h"
 
 #include <inttypes.h>
 

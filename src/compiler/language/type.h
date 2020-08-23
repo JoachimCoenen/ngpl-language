@@ -1,8 +1,8 @@
 #ifndef TYPE_H
 #define TYPE_H
 
-#include "../util/types.h"
-#include "intermediate/intermediateCode.h"
+#include "util/types.h"
+#include "compiler/intermediate/intermediateCode.h"
 #include "member.h"
 
 #include "cat_utils.h"

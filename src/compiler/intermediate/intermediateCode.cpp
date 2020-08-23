@@ -1,6 +1,6 @@
 #include "intermediateCode.h"
 
-#include "../function.h"
+#include "compiler/language/function.h"
 
 #include "toStringUtils.h"
 
@@ -34,7 +34,7 @@ bool IntermediateSimpleInstruction::hasSideEffect() const {
 	case InstructionID::instrName: return hasSideEffect;
 
 	switch (id()) {
-#include "../../util/instructions_inc.h"
+#include "util/instructions_inc.h"
 	}
 	throw cat::Exception(cat::SW() << "instruction ID not handeled! " << id());
 #undef INSTRUCTION_FACTORY0
@@ -87,7 +87,7 @@ const Instructions Instructions::stackDeltaForInstructions{};
 #define INSTRUCTION_FACTORY1(instrName, stackDelta, hasSideEffect, funcName, argType, arg) array[static_cast<uint8_t>(InstructionID::instrName)] = stackDelta;
 Instructions::Instructions()
 {
-	#include "../../util/instructions_inc.h"
+	#include "util/instructions_inc.h"
 }
 #undef INSTRUCTION_FACTORY0
 #undef INSTRUCTION_FACTORY1

@@ -1,7 +1,7 @@
 #ifndef MEMBER_H
 #define MEMBER_H
 
-#include "../util/types.h"
+#include "util/types.h"
 
 namespace ngpl {
 

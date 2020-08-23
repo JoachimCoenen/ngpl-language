@@ -4,7 +4,7 @@
 #include "position.h"
 #include "unitNature.h"
 
-#include "../util/types.h"
+#include "util/types.h"
 
 #include "cat_typing.h"
 #include "toStringUtils.h"

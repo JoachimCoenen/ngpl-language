@@ -1,10 +1,10 @@
 #ifndef LINKER_H
 #define LINKER_H
 
-#include "unit.h"
+#include "language/unit.h"
 
 #include "intermediate/intermediateCode.h"
-#include "../vm/instruction.h"
+#include "vm/instruction.h"
 
 #include <string>
 #include <unordered_map>

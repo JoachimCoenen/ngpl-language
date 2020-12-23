@@ -71,9 +71,49 @@ func test3(val1: Int, val2: Int) -> Test3ReturnType {
 	return result
 }
 
+
+func testKahn1() {
+	let blue = 3
+	let green = 4
+	var red = blue + green             // 7
+	let orange = 5                     // 
+	var turquoise = red + orange       // 12
+	var yellow = red + blue            // 10
+	var pink = sqr(green)              // 16
+	var purple = turquoise + yellow    // 2
+	var gray = orange + pink           // 21
+	var result = combine(purple, gray, green)
+	print(result) // 22 + 21 + 4 = 47
+}
+
+func testKahn2() -> Int {
+	let blue = 3
+	let green = 4
+	var red = blue + green
+	let orange = 5
+	var turquoise = red + orange
+	var yellow = red + blue
+	var pink = sqr(green)
+	var purple = turquoise + yellow
+	var gray = orange + pink
+	var result = combine(purple, gray, green)
+	return result
+}
+
+
+
+
+
+
 print("")
 print("++++ START ++++")
 print("")
+testKahn1()
+print("")
+print("++++ START ++++")
+print("")
+testKahn2()
+
 
 print("test2:")
 let r2 = test2(7)
@@ -98,10 +138,6 @@ print(String(r3.val1))
 print(String(r3.val2))
 print(String(3))
 print(String(-7))
-
-
-
-
 
 
 

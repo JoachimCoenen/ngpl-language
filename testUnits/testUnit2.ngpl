@@ -1,0 +1,88 @@
+unit Test
+
+type Point = struct { 
+	var x: Int var y: Int var z: Int 
+	
+	func str() -> String {
+		return "Pointy(" + 
+			String(self.x) + ", " + 
+			String(self.y) + ", " + 
+			String(self.z) + 
+		")"
+	}
+	
+	func rotate() {
+		let tmp = self.x
+		self.x = self.y
+		self.y = self.z
+		self.z = tmp
+	}
+	
+	func translateX(amount: Int) {
+		self.x = self.x + amount
+	}
+	
+	func translateY(amount: Int) {
+		self.y = self.y + amount
+	}
+	
+	func translateZ(amount: Int) {
+		self.z = self.z + amount
+	}
+	
+}
+
+func Point(x: Int, y: Int, z: Int) -> Point {
+	var p: Point
+	p.x = x
+	p.y = y
+	p.z = z
+	return p
+}
+
+func String(p: Point) -> String {
+	return "Point(" + String(p.x) + ", " + String(p.y) + ", " + String(p.z) + ")"
+}
+
+func print(p: Point) {
+	print(String(p))
+}
+
+func print2(p: Point) {
+	print(p.str())
+}
+
+
+func main() {
+	var p = Point(7, 8, 9)
+	
+	print(p)
+	
+	p.rotate()
+	
+	print(p)
+	
+	print(p.str())
+	
+	p.translateX(-7)
+	
+	print2(p)
+	
+}
+
+
+var p = Point(7, 8, 9)
+
+print(p)
+
+p.rotate()
+
+print(p)
+
+print(p.str())
+
+p.translateX(-7)
+
+print2(p)
+
+main()

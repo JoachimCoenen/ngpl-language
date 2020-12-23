@@ -90,12 +90,24 @@ type Point = struct {
 	}
 	
 	func rotate() {
-		var tmp = self.x
+		let tmp = self.x
 		self.x = self.y
 		self.y = self.z
 		self.z = tmp
 	}
-	// */
+	
+	func translateX(amount: Int) {
+		self.x = self.x + amount
+	}
+	
+	func translateY(amount: Int) {
+		self.y = self.y + amount
+	}
+	
+	func translateZ(amount: Int) {
+		self.z = self.z + amount
+	}
+	
 }
 
 func Point(x: Int, y: Int, z: Int) -> Point {
@@ -116,9 +128,10 @@ func print(p: Point) {
 }
 
 
-var point: Point = Point(8, 7, 6)
+var point: Point = Point(8, 7, 9)
 
 print(point.str())
+print(point)
 
 let z1 = point.z
 let y1 = point.y
@@ -126,11 +139,39 @@ let x1 = point.x
 print(x1)
 print(y1)
 print(z1)
+
 let point2 = point
+
+var point3 = point
+
+print("")
+print("point2:")
 print(point2)
+print(point2.str())
+
 point2.rotate()
+print("point2 rotatet:")
 print(point2)
+
+print("")
+print("point3:")
+print(point3)
+
+point3.translateZ(7)
+print("point3 translated Z:")
+print(point3)
+
+print("")
 //*/
+
+
+func doSth() -> Int {
+	let v1 = 7
+	let v2 = v1 + v1
+	
+	print(v2)
+	return v2
+}
 
 
 type Rect = struct {
@@ -147,6 +188,8 @@ type Rect = struct {
 		
 	}
 }
+
+
 
 func Rect(topLeft: Point, bottomRight: Point) -> Rect {
 	var p: Rect

@@ -178,7 +178,26 @@ const std::unordered_map<std::string, std::unordered_map<FunctionSignature, Buil
 			}
 		, std::nullopt),
 		}
+	}, { "sqr", {
+		builtinFunc( "sqr", "", "Int", {"Int"}, false,
+			[](cat::Stack<Value>& args) {
+				const auto v = GETVAL(0, int64_t);
+				return v * v;
+			}
+		, std::nullopt),
+		}
+	}, { "combine", {
+		builtinFunc( "combine", "", "Int", {"Int", "Int", "Int"}, false,
+			[](cat::Stack<Value>& args) {
+			const auto v0 = GETVAL(0, int64_t);
+			const auto v1 = GETVAL(0, int64_t);
+			const auto v2 = GETVAL(0, int64_t);
+				return v0 + v1 + v2;
+			}
+		, std::nullopt),
+		}
 	},
+
 
 };
 
@@ -263,7 +282,7 @@ TypeCWeakPtr CodeGenerator::evalExpression(const ExpressionCWeakPtr& expr)
 		if (isMethod) {
 			parentType = evalExpression(funcCall->parent.getRaw());
 			// next line is commented out, bc. 'self' variable is temporarely passed as a STACK_VAL and not a STACK_REF:
-			// addInstruction(Instrs::PushInt( /*cat::range(args).map(LAMBDA(v){ return v->fixedSize(); }).join() +*/ parentType->fixedSize(), funcCall->pos ));
+			//addInstruction(Instrs::PushInt( /*cat::range(args).map(LAMBDA(v){ return v->fixedSize(); }).join() +*/ parentType->fixedSize(), funcCall->pos ));
 		}
 
 		std::vector<TypeCWeakPtr> argsTmp = cat::range(funcCall->arguments)

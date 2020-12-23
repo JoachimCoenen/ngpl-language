@@ -195,4 +195,9 @@ bool IntermediateCodeContainer::hasSideEffect() const
 	return false;
 }
 
+bool IntermediateCodeContainer::isEmpty() const
+{
+	return this->instructions.empty();
+}
+
 }

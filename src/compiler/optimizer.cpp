@@ -684,17 +684,21 @@ public:
 	void cleanupCodeContainer(intermediate::IntermediateCodeContainerWeakPtr container) {
 		for (size_t i = 0; i < container->instructions.size(); ++i) {
 			auto& code = container->instructions[i];
+			intermediate::IntermediateInstructionPtr replacementInstruction = nullptr;
 			if (auto instr = code.as<itm::IntermediateSimpleInstruction>()) {
-				cleanupInstruction(instr);
+				replacementInstruction = cleanupInstruction(instr);
 			} else if (auto ifInstr = code.as<itm::IntermediateIf>()) {
-				cleanupIf(ifInstr);
+				replacementInstruction = cleanupIf(ifInstr);
 			} else if (auto loopInstr = code.as<itm::IntermediateLoop>()) {
-				cleanupLoop(loopInstr);
+				replacementInstruction = cleanupLoop(loopInstr);
 			} else if (auto specialInstr = code.as<itm::IntermediateSpecial>()) {
-				cleanupSpecial(specialInstr);
+				replacementInstruction = cleanupSpecial(specialInstr);
 				break;
 			} else {
-				throw cat::Exception("unhndeled IntermediateInstruction sub type.");
+				throw cat::Exception("unhandeled IntermediateInstruction sub type.");
+			}
+			if (replacementInstruction != nullptr) {
+				code = std::move(replacementInstruction);
 			}
 		}
 	}
@@ -715,7 +719,7 @@ public:
 
 	// ================================================================================================================
 
-	void cleanupInstruction(itm::IntermediateSimpleInstructionWeakPtr instr) {
+	intermediate::IntermediateSimpleInstructionPtr cleanupInstruction(itm::IntermediateSimpleInstructionWeakPtr instr) {
 		auto& data = instr->data();
 		switch (instr->id()) {
 		case InstrID::NOP: {} break;
@@ -727,7 +731,7 @@ public:
 
 		case InstrID::READ_STCK_F: {
 			if (data.getValue<Address>() == 0) {
-				*instr = Instrs::Dup(0, instr->pos());
+				return new intermediate::IntermediateSimpleInstruction(Instrs::Dup(0, instr->pos()));
 			}
 		} break;
 		case InstrID::READ_STCK_D: {} break;
@@ -778,18 +782,34 @@ public:
 		default:
 			throw cat::Exception(cat::SW() << "unknown Instruction ID. " << *instr);
 		}
+		return nullptr;
 	}
 
-	void cleanupIf(itm::IntermediateIfWeakPtr ifInstr) {
+	intermediate::IntermediateInstructionPtr cleanupIf(itm::IntermediateIfWeakPtr ifInstr) {
 		cleanupCodeContainer(&ifInstr->ifCode);
 		cleanupCodeContainer(&ifInstr->elseCode);
+
+		if (ifInstr->ifCode.isEmpty()) {
+			if (ifInstr->elseCode.isEmpty()) {
+				// this 'if' is completely useless, so remove it:
+
+				intermediate::IntermediateInstructionWeakPtr replacementInstruction = ifInstr;
+				return new intermediate::IntermediateSimpleInstruction(Instrs::Nop(ifInstr->pos()));
+			} else {
+				// elseCode exists but if Code doesn't, so swap them:
+				std::swap(ifInstr->ifCode, ifInstr->elseCode);
+				ifInstr->isInverted = not ifInstr->isInverted;
+			}
+		}
+		return nullptr;
 	}
 
-	void cleanupLoop(intermediate::IntermediateLoopWeakPtr loopInstr) {
+	intermediate::IntermediateInstructionPtr cleanupLoop(intermediate::IntermediateLoopWeakPtr loopInstr) {
 		cleanupCodeContainer(&loopInstr->code);
+		return nullptr;
 	}
 
-	void cleanupSpecial(intermediate::IntermediateSpecialWeakPtr specialInstr) {
+	intermediate::IntermediateInstructionPtr cleanupSpecial(intermediate::IntermediateSpecialWeakPtr specialInstr) {
 		switch (specialInstr->id) {
 		case itm::IntermediateSpecialId::RETURN:
 			break;
@@ -798,6 +818,7 @@ public:
 		case itm::IntermediateSpecialId::BREAK:
 			break;
 		}
+		return nullptr;
 	}
 
 

@@ -36,6 +36,8 @@ public:
 	// InstructionsContainer
 	cat::WriterObjectABC& print(cat::WriterObjectABC& s) const override;
 	bool hasSideEffect() const;
+
+	bool isEmpty() const;
 };
 
 using SimpleInstructionData = cat::Variant<None_, std::string, int64_t, const void*>;

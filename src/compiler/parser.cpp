@@ -73,7 +73,7 @@ StatementPtr Parser::parseStatement()
 		VariableReferencePtr lexpr = nullptr;
 		try {
 			lexpr = parseExpressionNoOp().asOwning<VariableReference>();
-		} catch (SyntaxError) {
+		} catch (SyntaxError&) {
 			lexpr = nullptr;
 		}
 

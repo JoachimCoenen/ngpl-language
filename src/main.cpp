@@ -106,7 +106,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 			auto astRoot = parseFile(src);
 			unit = ctx.evalUnitDeclaration(astRoot.getRaw()->statements[0].as<ngpl::UnitDeclaration>());
 			compiledSuccessfull = true;
-		} catch (ngpl::SyntaxError e) {
+		} catch (ngpl::SyntaxError& e) {
 
 			auto errorLine = range(src)
 				.split_c(LAMBDA(v){ return v == '\n'; })

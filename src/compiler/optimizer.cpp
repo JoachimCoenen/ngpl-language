@@ -198,10 +198,18 @@ protected:
 	ValueStoreWeakPtr _valueStore;
 	cat::Stack<TaggedValueWeakPtr> _stack{};
 	std::vector<TaggedValueWeakPtr> _instructionsWithSideEffect;
+	uint32_t _stackCompressionBarrier = 0; // the _stack must NOT be compressed below this address!
 	bool _isValid = true;
 public:
 	void invalidate(){ _isValid = false; }
 	bool isValid() const { return _isValid; }
+
+	/**
+	 * @brief The stack must NOT be compressed below this (absolute) address!
+	 * @return
+	 */
+	uint32_t stackCompressionBarrier() const { return _stackCompressionBarrier; }
+	void setStackCompressionBarrier(uint32_t v) { _stackCompressionBarrier = v;	}
 
 	void pushValue(std::optional<Value>&& constValue, TaggedInstructionWeakPtr generatedBy) {
 		_stack.push(_valueStore->getNewValue(std::move(constValue), generatedBy));
@@ -239,6 +247,12 @@ public:
 		return _stack.at(absoultueAddress);
 	}
 
+	void swap() {
+		const auto top = _stack.size() - 1;
+		std::swap(_stack.at(top), _stack.at(top-1));
+	}
+
+
 	void retagStackValues() {
 		invalidate();
 		const auto stackSize = _stack.size();
@@ -267,8 +281,13 @@ public:
 		_instructionsWithSideEffect.push_back(value);
 	}
 
+	bool sideEffectHasHappened(TaggedValueCWeakPtr value) const {
+		NGPL_ASSERT(value->isVirtual);
+		return not getAllInstructionsWithSideEffect().empty() and getAllInstructionsWithSideEffect().back()->id == value->id;
+	}
+
 	const cat::Stack<TaggedValueWeakPtr>& getStack() const { return _stack; }
-	const std::vector<TaggedValueWeakPtr>& getAllInstructionsWithSideEffect() { return _instructionsWithSideEffect; }
+	const std::vector<TaggedValueWeakPtr>& getAllInstructionsWithSideEffect() const { return _instructionsWithSideEffect; }
 
 	Address getAbsoluteAddress(Address addr) {
 		return  Address(_stack.size()) - addr - 1;
@@ -280,6 +299,14 @@ public:
 
 };
 
+struct IntermediateCode {
+	std::vector<intermediate::IntermediateInstructionPtr> vector;
+
+	void push_back(intermediate::IntermediateInstructionPtr&& instr) {
+		vector.push_back(std::move(instr));
+	}
+
+};
 
 class OptimizerInternal
 {
@@ -300,16 +327,17 @@ public:
 	}
 
 	void optimizeScope(ScopeWeakPtr scope) {
-
+		// optimize each function:
+		// (they are stored as a Dict[funcName, Dict[signature, function]])
 		foreach_v(func, cat::range(scope->getFunctions())
-				  .map(LAMBDA_n(funcsPair) { return cat::range(funcsPair.second); })
-				  .flatten()
+				  .flatmap(LAMBDA_n(funcsPair) { return cat::range(funcsPair.second); })
 				  .map(LAMBDA_n(funcPair) { return funcPair.second.getRaw(); })
 		) {
 			//_functionEntryPoints[func->asQualifiedCodeString()] = _instructions.size();
 			optimizeFunc(func);
 		}
 
+		// optimize each type:
 		foreach_v(type, cat::range(scope->getTypes())
 				  .map_c(LAMBDA_n(typePair) { return typePair.second.getRaw(); })
 		) {
@@ -347,10 +375,11 @@ public:
 		optimizeCodeContainer(&type->body(), stackLayout);
 	}
 
-	void optimizeFunc(FunctionWeakPtr func) {
-		ValueStore valueStore;
+
+	StackLayoutScenario _getStackLayoutForFunction(FunctionWeakPtr func, ValueStore& valueStore) {
 		StackLayoutScenario stackLayout(&valueStore);
 		if (func->selfType()) {
+			//function is a method
 			for (auto i = func->selfType()->fixedSize(); i-->0;) {
 				stackLayout.pushValue(std::nullopt, nullptr);
 			}
@@ -358,6 +387,12 @@ public:
 		for (auto i = func->argumentsStackSize(); i-->0;) {
 			stackLayout.pushValue(std::nullopt, nullptr);
 		}
+		return stackLayout;
+	}
+
+	void optimizeFunc(FunctionWeakPtr func) {
+		ValueStore valueStore;
+		StackLayoutScenario stackLayout = _getStackLayoutForFunction(func, valueStore);
 		StackLayoutScenario initialStackLayout(stackLayout);
 
 		optimizeCodeContainer(&func->body(), stackLayout);
@@ -379,11 +414,11 @@ public:
 //			}
 
 			auto returnCount = args.size();
-			std::vector<intermediate::IntermediateInstructionPtr> intermediateCode;
+			IntermediateCode intermediateCode;
 			TaggedInstructionWeakPtr instr = stackLayout.addInstructionWithSideEffect(Instrs::Nop(func->body().instructions[0]->pos()), std::move(args));
 
 			if (generateInstructionSequenceFromReturn(instr, returnCount, initialStackLayout, intermediateCode)) {
-				func->body().instructions = std::move(intermediateCode);
+				func->body().instructions = std::move(intermediateCode.vector);
 			}
 		}
 	}
@@ -391,6 +426,8 @@ public:
 	// ================================================================================================================
 
 	void optimizeInstruction(itm::IntermediateSimpleInstructionWeakPtr instr, StackLayoutScenario& stackLayout) {
+		// this method records the effects that a single instruction has. This is later used to build somethng
+		// simiar to a Static single assignment form (https://en.wikipedia.org/wiki/Static_single_assignment_form).
 		if (not stackLayout.isValid()) {
 			return;
 		}
@@ -667,8 +704,7 @@ public:
 
 	void cleanupScope(ScopeWeakPtr scope) {
 		foreach_v(func, cat::range(scope->getFunctions())
-				  .map(LAMBDA_n(funcsPair) { return cat::range(funcsPair.second); })
-				  .flatten()
+				  .flatmap(LAMBDA_n(funcsPair) { return cat::range(funcsPair.second); })
 				  .map(LAMBDA_n(funcPair) { return funcPair.second.getRaw(); })
 		) {
 			cleanupFunc(func);
@@ -853,6 +889,25 @@ public:
 		return orderOfGeneration;
 	}
 
+	std::vector<TaggedValueWeakPtr> getOrderedOperands(const std::vector<TaggedValueWeakPtr>& operands) {
+		const auto orderOfGeneration = getOrderOfGeneration(operands);
+
+		std::vector<TaggedValueWeakPtr> orderedOperands;
+		foreach_c(i, orderOfGeneration) {
+			orderedOperands.push_back(operands[i]);
+		}
+		return orderedOperands;
+		/*
+		return cat::range(orderOfGeneration)
+				.map(LAMBDA2(&, i) { return operands[i]; })
+				.toVector();
+		*/
+	}
+
+
+
+
+
 	/**
 	 * @brief cacheAllRecursivelyRequiredValuesForGraph
 	 * @param instruction
@@ -861,7 +916,7 @@ public:
 	 * already generated values are considered.
 	 */
 	void cacheAllRecursivelyRequiredValuesForGraph(TaggedInstructionWeakPtr instruction, std::unordered_set<TaggedValueWeakPtr>& alreadyGeneratedValues) {
-		struct OperandsPreviouselySeenUsage{ uint32_t index; uint32_t usageCount; };
+		struct OperandsPreviouselySeenUsage{ uint32_t index; int32_t usageCount; };
 
 
 		if (instruction->recursiveRequirements != nullptr) {
@@ -881,12 +936,16 @@ public:
 		std::vector<TaggedValueWeakPtr> orderedOperands = cat::range(orderOfGeneration).map(LAMBDA2_REF_n(&instruction, i) { return instruction->operands.at(i); }).toVector();
 
 		foreach_n(operand, orderedOperands) {
+			if (operand->id == 18) {
+				cat::OW(std::cout) << "good\n";
+			}
 			if (cat::contains(operandsPreviouselySeen, operand)) {
 				continue;
 			}
 			if (cat::contains(instructionsPreviouselySeen, operand->generatedBy)) {
 				NGPL_ASSERT(operand->generatedBy != nullptr);
-				continue;
+				NGPL_ASSERT(cat::contains(alreadyGeneratedValues, operand));
+				//continue;
 			}
 
 			if (not cat::contains(alreadyGeneratedValues, operand)) {
@@ -924,7 +983,7 @@ public:
 					}
 				}
 			} else {
-				alreadyGeneratedValues.insert(operand);
+				// ?? alreadyGeneratedValues.insert(operand);
 			}
 
 			// set usedByMultipleOperands flag if if operand is already used, otherwse do nothing.
@@ -964,29 +1023,45 @@ public:
 			}
 		}
 
-		// isert all operands in recursivelyRequiredValues:
+		// insert all operands in recursivelyRequiredValues:
 		foreach_n(operand, cat::reversed(orderedOperands)) {
 			// Value:
 			if (auto* index [[maybe_unused]] = cat::find(recursivelyRequiredValuesIndices, operand)) {
-				// innerOperand was already needed previously, but this operand was earlier, so DONT set usedByMultipleOperands flag.
+				// innerOperand was already needed previously, but this operand is earlier
+				// (we're iteraing backwards), so DO NOT set usedByMultipleOperands flag.
+
 				// checkfor integrity:
 				// NGPL_ASSERT(recursivelyRequiredValues.at(*index).val->id == operand->id);
 			} else {
 				auto* usage = cat::find(operandsPreviouselySeen, operand);
+				if (usage == nullptr) {
+					cat::OW(std::cout) << "good :(\n";
+				}
 				NGPL_ASSERT(usage);
-				recursiveRequirements.values.insert(recursiveRequirements.values.begin() + usage->index, {operand, false, int32_t(usage->usageCount)});
+				// The recursive requirement's usage count cannot be larger than the
+				// total usage count of its value (aka. operand, here) (d'oh!).
+				NGPL_ASSERT(not (usage->usageCount > operand->usageCount));
+				recursiveRequirements.values.insert(
+						recursiveRequirements.values.begin() + usage->index,
+						{operand, false, int32_t(usage->usageCount)}
+				);
 				recursivelyRequiredValuesIndices[operand] = recursiveRequirements.values.size() - 1;
 			}
 			// Instruction:
 			if (auto generatedBy = operand->generatedBy) {
 				if (auto* index [[maybe_unused]] = cat::find(recursivelyRequiredInstrsIndices, generatedBy)) {
-					// innerOperand was already needed previously, but this generatedBy was earlier, so DONT set usedByMultipleOperands flag.
+					// generatedBy was already needed previously, but this generatedBy is earlier
+					// (we're iteraing backwards), so DO NOT set usedByMultipleOperands flag.
+					recursiveRequirements.instructions.at(*index).usedByMultipleOperands = true;
 					// checkfor integrity:
 					// NGPL_ASSERT(recursivelyRequiredValues.at(*index).val->id == generatedBy->id);
 				} else {
 					auto* usage = cat::find(instructionsPreviouselySeen, generatedBy);
 					NGPL_ASSERT(usage);
-					recursiveRequirements.instructions.insert(recursiveRequirements.instructions.begin() + usage->index, {generatedBy, false, int32_t(usage->usageCount)});
+					recursiveRequirements.instructions.insert(
+							recursiveRequirements.instructions.begin() + usage->index,
+							{generatedBy, false, int32_t(usage->usageCount)}
+					);
 					recursivelyRequiredInstrsIndices[generatedBy] = recursiveRequirements.instructions.size() - 1;
 				}
 			}
@@ -1006,7 +1081,7 @@ public:
 			Address toRel,
 			const Position& pos,
 			StackLayoutScenario& stackLayout,
-			std::vector<intermediate::IntermediateInstructionPtr>& intermediateCode
+			IntermediateCode& intermediateCode
 	) {
 		NGPL_ASSERT(fromRel >= 0 and fromRel < Address(stackLayout.getStack().size()));
 		NGPL_ASSERT(toRel >= -1 and toRel < Address(stackLayout.getStack().size()));
@@ -1044,13 +1119,27 @@ public:
 		}
 	}
 
+	void popUnusedValues(
+			const Position& pos,
+			StackLayoutScenario& stackLayout,
+			IntermediateCode& intermediateCode
+	) {
+		while (not stackLayout.getStack().empty() and stackLayout.peekValue()->usageCount <= 0) {
+			NGPL_ASSERT(stackLayout.peekValue()->usageCount == 0);
+			intermediateCode.push_back(new InterInstr(Instrs::PopVal(pos)));
+			stackLayout.popValue();
+		}
+	}
+
 	void compressStack(
 			uint32_t maxValueCount,
 			const Position& pos,
 			StackLayoutScenario& stackLayout,
-			std::vector<intermediate::IntermediateInstructionPtr>& intermediateCode
+			IntermediateCode& intermediateCode
 	) {
 		auto& stack = stackLayout.getStack();
+		NGPL_ASSERT(stackLayout.stackCompressionBarrier() <= stack.size());
+		maxValueCount = std::min(maxValueCount, (uint32_t)stack.size() - stackLayout.stackCompressionBarrier());
 		NGPL_ASSERT(maxValueCount <= stack.size());
 
 		std::vector<Address> moveLeftCounts(maxValueCount, 0);
@@ -1083,8 +1172,15 @@ public:
 			}
 
 			toBeMoved.push(index);
-			while (stack.at( firstIndex + toBeMoved.peek() - moveLeftCounts.at(toBeMoved.peek()) )->usageCount > 0) {
-				toBeMoved.push(toBeMoved.peek() - moveLeftCounts.at(toBeMoved.peek()));
+			while (true) {
+				const auto toBeMovedPeek = toBeMoved.peek();
+				const auto moveLeftCountsAtToBeMovedPeek = moveLeftCounts.at(toBeMovedPeek);
+				const auto stackIndex = firstIndex + toBeMovedPeek - moveLeftCountsAtToBeMovedPeek;
+				if (stack.at( stackIndex )->usageCount > 0) {
+					toBeMoved.push(toBeMoved.peek() - moveLeftCounts.at(toBeMoved.peek()));
+				} else {
+					break;
+				}
 			}
 			while (not toBeMoved.empty()) {
 				const auto fromIndex = toBeMoved.pop();
@@ -1094,6 +1190,7 @@ public:
 					stackLayout.getRelativeAddress(firstIndex + toIndex),
 					pos, stackLayout, intermediateCode
 				);
+				moveLeftCounts.at(toIndex) = 0; // This value is at its final positin and doesn't need to be moved anymore.
 			}
 		}
 	}
@@ -1101,28 +1198,24 @@ public:
 	void generateValue(
 			TaggedValueWeakPtr value, const Position& pos,
 			StackLayoutScenario& stackLayout,
-			std::vector<intermediate::IntermediateInstructionPtr>& intermediateCode,
+			IntermediateCode& intermediateCode,
 			bool moveDontCopy = false
 	) {
 		NGPL_ASSERT2(stackLayout.getStack().empty() or stackLayout.peekValue()->usageCount > 0, "all unused values should have been removed from the stack...");
 		if (value->isVirtual) {
-			if (stackLayout.getAllInstructionsWithSideEffect().empty() or stackLayout.getAllInstructionsWithSideEffect().back()->id != value->id) {
-
+			if (not stackLayout.sideEffectHasHappened(value)) {
 				if (value->generatedBy == nullptr) {
 					throw cat::Exception("Cannot find sideEffect, but also doesn't know how to generate it.");
 				} else {
 					generateInstructionSequenceFromGraph(value->generatedBy, stackLayout, intermediateCode);
-					compressStack(value->generatedBy->generatesValues.size(), pos, stackLayout, intermediateCode);
-					while (not stackLayout.getStack().empty() and stackLayout.peekValue()->usageCount <= 0) {
-						NGPL_ASSERT(stackLayout.peekValue()->usageCount == 0);
-						intermediateCode.push_back(new InterInstr(Instrs::PopVal(pos)));
-						stackLayout.popValue();
-					}
-
-
+					compressStack(value->generatedBy->generatesValues.size()+1000, pos, stackLayout, intermediateCode);
+					popUnusedValues(pos, stackLayout, intermediateCode);
 				}
 			}
 		} else {
+			if (value->id == 23) {
+				cat::OW(std::cout) << "good :(\n";
+			}
 			auto existingIndex = findRelativeIndexInStack(stackLayout.getStack(), value);
 
 			if (existingIndex < 0) {
@@ -1130,12 +1223,8 @@ public:
 					throw cat::Exception("Cannot find value, but also doesn't know how to generate it.");
 				} else {
 					generateInstructionSequenceFromGraph(value->generatedBy, stackLayout, intermediateCode);
-					compressStack(value->generatedBy->generatesValues.size(), pos, stackLayout, intermediateCode);
-					while (not stackLayout.getStack().empty() and stackLayout.peekValue()->usageCount <= 0) {
-						NGPL_ASSERT(stackLayout.peekValue()->usageCount == 0);
-						intermediateCode.push_back(new InterInstr(Instrs::PopVal(pos)));
-						stackLayout.popValue();
-					}
+					compressStack(value->generatedBy->generatesValues.size()+1000, pos, stackLayout, intermediateCode);
+					popUnusedValues(pos, stackLayout, intermediateCode);
 				}
 			} else if (existingIndex == 0) {
 				if (moveDontCopy or value->usageCount == 1) {
@@ -1144,17 +1233,28 @@ public:
 					intermediateCode.push_back(new InterInstr(Instrs::Dup(0, pos)));
 					stackLayout.readValue(0);
 				}
+			}  else if (existingIndex == 1) {
+				if (moveDontCopy or value->usageCount == 1) {
+					intermediateCode.push_back(new InterInstr(Instrs::Swap(pos)));
+					stackLayout.swap();
+				} else {
+					intermediateCode.push_back(new InterInstr(Instrs::ReadStackF(1, pos)));
+					stackLayout.readValue(1);
+				}
 			} else {
 				intermediateCode.push_back(new InterInstr(Instrs::ReadStackF(existingIndex, pos)));
 				stackLayout.readValue(existingIndex);
 				if (moveDontCopy) {
-					// mark old position ov value as reusable, by setting its usageCount to 0,
+					// mark old position of value as reusable, by setting its usageCount to 0,
 					// without affecting the value itself:
 					stackLayout.pushValue(std::nullopt, nullptr);
 					stackLayout.writeValue(existingIndex+2);
 				}
 			}
-			NGPL_ASSERT(value->id == stackLayout.peekValue()->id);
+			if (value->id != stackLayout.peekValue()->id) {
+				cat::OW(std::cout) << "bad :)\n";
+			}
+			// NGPL_ASSERT(value->id == stackLayout.peekValue()->id);
 		}
 	}
 
@@ -1163,7 +1263,7 @@ public:
 			std::vector<TaggedValueWeakPtr> values,
 			std::vector<size_t> orderOfGeneration,
 			StackLayoutScenario& stackLayout,
-			std::vector<intermediate::IntermediateInstructionPtr>& intermediateCode
+			IntermediateCode& intermediateCode
 		) {
 
 		std::vector<TaggedValueWeakPtr> preCalculatedValues;
@@ -1198,7 +1298,7 @@ public:
 	void preGenerateValuesForInstruction(
 			TaggedInstructionCWeakPtr instruction,
 			StackLayoutScenario& stackLayout,
-			std::vector<intermediate::IntermediateInstructionPtr>& intermediateCode
+			IntermediateCode& intermediateCode
 		) {
 		auto& stack = stackLayout.getStack();
 		const auto isInStackPredicate = LAMBDA2(&, v) { return findRelativeIndexInStack(stack, v) >= 0; };
@@ -1217,38 +1317,46 @@ public:
 		}
 	}
 
-	void generateInstructionSequenceFromGraph(
+	/**
+	 * @brief prepareValuesForInstruction
+	 * @param taggedInstr
+	 * @param stackLayout
+	 * @param intermediateCode
+	 * @return std::vector<TaggedValueWeakPtr> orderedOperands
+	 */
+	std::vector<TaggedValueWeakPtr> prepareValuesForInstruction(
 			TaggedInstructionCWeakPtr taggedInstr,
 			StackLayoutScenario& stackLayout,
-			std::vector<intermediate::IntermediateInstructionPtr>& intermediateCode
-	) {
+			IntermediateCode& intermediateCode
+	){
 		/*
 		 * Algorithm:
 		 *  1. generate instructions for the values in return starting with the lowest lamportTimestamps, left to right
 		 *
 		 */
-
-
-		auto& operands = taggedInstr->operands;
-		const auto orderOfGeneration = getOrderOfGeneration(operands);
-
+		const auto& operands = taggedInstr->operands;
+		auto orderedOperands = getOrderedOperands(operands);
 
 		/*
 		preGenerateSomeValues(values, orderOfGeneration, stackLayout, intermediateCode);
 		*/
-		preGenerateValuesForInstruction(taggedInstr,stackLayout, intermediateCode);
+		preGenerateValuesForInstruction(taggedInstr, stackLayout, intermediateCode);
 
 		// Generate or find required values:
 		bool isLastUsageStreak = true;
 		Address lastIndex = -1;
 		bool smartValueGenerationWasSuccessful = true;
 		// smart generation:
-		foreach_c(index, orderOfGeneration) {
-			auto value = operands.at(index);
+		foreach_c(value, orderedOperands) {
 			NGPL_ASSERT( value->usageCount >= 0);
 
+			if (value->isVirtual) {
+				// we analyze the virtuals later.
+				continue;
+			}
+
+			const bool isLastUsage = value->usageCount <= 1;
 			if (isLastUsageStreak){
-				const bool isLastUsage = value->usageCount <= 1;
 				if (isLastUsage) {
 					auto newIndex = findRelativeIndexInStack(stackLayout.getStack(), value);
 					if (newIndex >= 0 and (lastIndex == -1 or lastIndex-1 == newIndex)) {
@@ -1257,38 +1365,60 @@ public:
 						isLastUsageStreak = false;
 						if (lastIndex != 0) {
 							smartValueGenerationWasSuccessful = false;
-							break;
+							//break;
 						}
 					}
 				} else {
 					isLastUsageStreak = false;
 					if (lastIndex != 0) {
 						smartValueGenerationWasSuccessful = false;
-						break;
+						//break;
 					}
 				}
 			} else {
-				generateValue(value, taggedInstr->instr.pos(), stackLayout, intermediateCode, value->usageCount <= 1);
-				lastIndex = 0;
+//				if (not isLastUsage) {
+//					generateValue(value, taggedInstr->instr.pos(), stackLayout, intermediateCode, value->usageCount <= 1);
+//					NGPL_ASSERT(value->isVirtual or value->id == stackLayout.peekValue()->id);
+//					lastIndex = 0;
+//				}
 			}
 		}
 		smartValueGenerationWasSuccessful = smartValueGenerationWasSuccessful and lastIndex == 0;
+		if (smartValueGenerationWasSuccessful) {
+			foreach_c(value, orderedOperands) {
+				NGPL_ASSERT( value->usageCount >= 0);
+				if (not value->isVirtual) {
+					// we just analyzed the non-virtuals.
+					continue;
+				}
+				generateValue(value, taggedInstr->instr.pos(), stackLayout, intermediateCode, value->usageCount <= 1);
+			}
+		}
+
 		// if smart Generation was not successful:
 		if (not smartValueGenerationWasSuccessful) {
-			foreach_c(index, orderOfGeneration) {
-				auto value = operands.at(index);
+			foreach_c(value, orderedOperands) {
 				NGPL_ASSERT( value->usageCount >= 0);
 				generateValue(value, taggedInstr->instr.pos(), stackLayout, intermediateCode, value->usageCount <= 1);
+				NGPL_ASSERT(value->isVirtual or value->id == stackLayout.peekValue()->id);
 			}
 		}
 
 		// decrement usageCount of all used operands:
-		foreach_c(index, orderOfGeneration) {
-			auto value = operands.at(index);
+		foreach_n(value, orderedOperands) {
 			value->usageCount -= 1;
 		}
 
+		return orderedOperands;
+	}
 
+
+	void generateInstructionSequenceFromGraph(
+			TaggedInstructionCWeakPtr taggedInstr,
+			StackLayoutScenario& stackLayout,
+			IntermediateCode& intermediateCode
+	) {
+		const auto orderedOperands = prepareValuesForInstruction(taggedInstr, stackLayout, intermediateCode);
 
 		auto instruct = taggedInstr->instr;
 		if (cat::isAnyOf(instruct.id(), InstrID::READ_STCK_D, InstrID::WRITE_STCK_D)) {
@@ -1297,8 +1427,7 @@ public:
 
 		intermediateCode.push_back(new InterInstr(instruct));
 
-		foreach_c(index [[maybe_unused]], orderOfGeneration) {
-			auto value = operands.at(index);
+		foreach_c(value, orderedOperands) {
 			if (not value->isVirtual) {
 				stackLayout.popValue();
 			}
@@ -1320,7 +1449,7 @@ public:
 			TaggedInstructionWeakPtr taggedInstr,
 			size_t returnCount,
 			StackLayoutScenario& stackLayout,
-			std::vector<itm::IntermediateInstructionPtr>& intermediateCode
+			IntermediateCode& intermediateCode
 	) {
 		if (taggedInstr->operands.size() == 0) {
 			return false;
@@ -1341,54 +1470,76 @@ public:
 			cacheAllRecursivelyRequiredValuesForGraph(taggedInstr, alreadyGeneratedValues);
 		}
 
+		// all following operations expect a clean stack:
+		popUnusedValues(taggedInstr->instr.pos(), stackLayout, intermediateCode);
 		/*
 		preGenerateSomeValues(values, orderOfGeneration, stackLayout, intermediateCode);
 		*/
-		preGenerateValuesForInstruction(taggedInstr,stackLayout, intermediateCode);
+		preGenerateValuesForInstruction(taggedInstr, stackLayout, intermediateCode);
 
+		const auto& stack = stackLayout.getStack();
 		// Generate or find required values:
 		foreach_c(index, orderOfGeneration) {
+			// value should be at position index in the stack, when functin returns.
+			const auto dstinationInStack = index;
 			auto value = operands.at(index);
 
 			if (not value->isVirtual) {
-				auto existingIndex = findRelativeIndexInStack(stackLayout.getStack(), value);
+				auto existingIndex = findRelativeIndexInStack(stack, value);
 				if (existingIndex > -1 and existingIndex == stackLayout.getRelativeAddress(index)) {
-					continue; // value already is at its final place
+					continue; // Value is already in its final place
+				}
+
+				// get value that would be overwritten:
+				if (dstinationInStack < stack.size()) {
+					// is the
+					const auto& valueAtDestination = stack.at(dstinationInStack);
+					bool canSafelyOverride = valueAtDestination->usageCount == 0;
+
+					if (not canSafelyOverride and value->generatedBy) {
+						// maybe the valueAtDestination can be removed after this value is generated?
+						foreach_n(recReqVal, value->generatedBy->recursiveRequirements->values) {
+							if (recReqVal.val->id == valueAtDestination->id) {
+								// The valueAtDestination is the recReqVal. So:
+								// If the recursive requirement's usage count is the total usage count
+								// of its value, then it's safe to overwrite it.
+								canSafelyOverride = recReqVal.usageCount == recReqVal.val->usageCount;
+
+								// The recursive requirement's usage count cannot be larger than the
+								// total usage count of its value (d'oh!).
+								NGPL_ASSERT(not (recReqVal.usageCount > recReqVal.val->usageCount));
+								break;
+							}
+						}
+					}
+
+					if (not canSafelyOverride) { //stackLayout.peekValue()->usageCount > 0) {
+						// TODO: maybe move this to after generateValue(...)? (using a SWAP instruction)
+						auto relativeIndex = stack.size() - index - 1;
+						stackLayout.readValue(relativeIndex);
+						intermediateCode.push_back(new InterInstr(Instrs::ReadStackF(relativeIndex, taggedInstr->instr.pos())));
+					}
 				}
 			}
 
-			// get value that would be overwritten:
-			if (not value->isVirtual and index < stackLayout.getStack().size()) {
-				bool canSafelyOverride = stackLayout.getStack().at(index)->usageCount == 0;
-				if (not canSafelyOverride and value->generatedBy) {
-					foreach_n(recReqVal, value->generatedBy->recursiveRequirements->values) {
-						if (recReqVal.val->id == stackLayout.getStack().at(index)->id) {
-							canSafelyOverride = recReqVal.usageCount == stackLayout.getStack().at(index)->usageCount;
-							NGPL_ASSERT(recReqVal.usageCount <= stackLayout.getStack().at(index)->usageCount);
-							break;
-						}
-					}
-				}
-
-				if (not canSafelyOverride) { //stackLayout.peekValue()->usageCount > 0) {
-					auto relativeIndex = stackLayout.getStack().size() - index - 1;
-					stackLayout.readValue(relativeIndex);
-					intermediateCode.push_back(new InterInstr(Instrs::ReadStackF(relativeIndex, taggedInstr->instr.pos())));
-				}
+			if (not value->isVirtual) {
+				// set compressionBarrier:
+				stackLayout.setStackCompressionBarrier(std::max(stackLayout.stackCompressionBarrier(), (uint32_t)index+1));
 			}
 			// generatethe actual value:
 			generateValue(value, taggedInstr->instr.pos(), stackLayout, intermediateCode, value->usageCount <= 1);
+			NGPL_ASSERT(value->isVirtual or value->id == stackLayout.peekValue()->id);
 
 			// put it in place:
 			if (not value->isVirtual) {
 				NGPL_ASSERT(stackLayout.peekValue()->id == value->id);
 
-				auto relativeIndex = stackLayout.getStack().size() - index - 1;
+				auto relativeIndex = stack.size() - index - 1;
 				if (relativeIndex > 0 ) {
 					intermediateCode.push_back(new InterInstr(Instrs::WriteStackF(relativeIndex, taggedInstr->instr.pos())));
+					stackLayout.writeValue(relativeIndex);
 	//				stackLayout.pushValue(std::nullopt, nullptr);
 	//				std::swap(*stackLayout.peekValue(), *value);
-					stackLayout.writeValue(relativeIndex);
 				}
 			}
 
@@ -1396,7 +1547,7 @@ public:
 		}
 
 		// clean up stack
-		for (int64_t i = stackLayout.getStack().size() - (0); i --> returnCount; ) { // operands.size()-1 here because operands contain 1virtual value.
+		for (size_t i = stack.size() - (0); i --> returnCount; ) { // operands.size()-1 here because operands contain 1virtual value.
 			intermediateCode.push_back(new InterInstr(Instrs::PopVal(taggedInstr->instr.pos())));
 			const auto value = stackLayout.popValue();
 			NGPL_ASSERT(cat::isAnyOf(value->usageCount, 0, 1));

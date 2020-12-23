@@ -291,6 +291,14 @@ TypeCWeakPtr CodeGenerator::evalExpression(const ExpressionCWeakPtr& expr)
 			// desired stack Layout:
 			// ...|returnValue|
 			auto baseAddr = currentScope()->getFrameSize() + tempsOnStack- func->returnType()->fixedSize();
+
+			if (auto selfRef = funcCall->parent.as<VariableReference>()) {
+
+				readFromStackFrameF(baseAddr - parentType->fixedSize(), parentType->fixedSize(), funcCall->pos);
+				auto selfVar = evalVariableReference(selfRef);
+				writeToVariable(&selfVar, funcCall->pos);
+			}
+
 			readFromStackFrameF(baseAddr, func->returnType()->fixedSize(), funcCall->pos);
 			writeToStackFrameF(baseAddr - parentType->fixedSize(), func->returnType()->fixedSize(), funcCall->pos);
 			for (auto i = parentType->fixedSize(); i --> 0; ) {
@@ -409,29 +417,29 @@ void CodeGenerator::evalStatement(const StatementCWeakPtr& stmt)
 
 	}
 
-	else if (auto whieControl = stmt.as<WhileControl>()) {
+	else if (auto whileControl = stmt.as<WhileControl>()) {
 		//const auto whileConditionPos = getCurrentPos();
 		itm::IntermediateCodeContainer code;
 		codeContainerStack.push_back(&code);
 
-		const auto conditionType = evalExpression(whieControl->condition.getRaw());
-		checkType(GET_BUILIN_TYPE("Bool"), conditionType, whieControl->condition->pos);
+		const auto conditionType = evalExpression(whileControl->condition.getRaw());
+		checkType(GET_BUILIN_TYPE("Bool"), conditionType, whileControl->condition->pos);
 		tempsOnStack -= 1;
 
 		itm::IntermediateCodeContainer ifCode;
 		codeContainerStack.push_back(&ifCode);
-		addInstruction(new itm::IntermediateSpecial(itm::IntermediateSpecialId::BREAK, whieControl->pos));
+		addInstruction(new itm::IntermediateSpecial(itm::IntermediateSpecialId::BREAK, whileControl->pos));
 		codeContainerStack.pop_back();
 
 		itm::IntermediateCodeContainer elseCode;
-		addInstruction(new itm::IntermediateIf(true, std::move(ifCode), std::move(elseCode), whieControl->pos));
+		addInstruction(new itm::IntermediateIf(true, std::move(ifCode), std::move(elseCode), whileControl->pos));
 
 
 
-		evalBlock(whieControl->block.getRaw());
-		addInstruction(new itm::IntermediateSpecial(itm::IntermediateSpecialId::CONTINUE, whieControl->pos));
+		evalBlock(whileControl->block.getRaw());
+		addInstruction(new itm::IntermediateSpecial(itm::IntermediateSpecialId::CONTINUE, whileControl->pos));
 		codeContainerStack.pop_back();
-		addInstruction(new itm::IntermediateLoop(std::move(code), whieControl->pos));
+		addInstruction(new itm::IntermediateLoop(std::move(code), whileControl->pos));
 	}
 
 	else if (auto returnStmt = stmt.as<ReturnStatement>()) {
@@ -576,7 +584,7 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 		}
 
 		const auto qualifier = isMethod ? selfType->asQualifiedCodeString() + "." : "";
-		FunctionWeakPtr function = new Function(funcDecl->name, qualifier, signature, returnType, selfType, false);
+		FunctionWeakPtr function = new Function(funcDecl->name, qualifier, signature, returnType, selfType, true);
 		if (hasFunction(funcDecl->name, signature)) {
 			throw SyntaxError(cat::SW() << "redefinition of '" << funcDecl->name << "(" << signature.asCodeString() << ")'.", decl->pos);
 		}
@@ -643,7 +651,11 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 				evalDeclaration(innerDecl.getRaw());
 			}
 		}
+
+		// copy pointer over:
 		type->scope().___getPtr() = currentScope().___getPtr();
+
+		// finalize the type:
 		type->finish();
 		type->fixedSize() = currentScope()->getFrameSize();
 		foreach_c(innerDecl, typeDecl->members) {
@@ -651,6 +663,8 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 				evalDeclaration(innerDecl.getRaw());
 			}
 		}
+
+		// make sure only ONE owns the pointer:
 		scopeStack.back().___getPtr() = nullptr;
 		//type->scope() = new Scope(std::move(currentScope()));
 		popScope();
@@ -1078,12 +1092,17 @@ void CodeGenerator::writeToStackFrameD(Address relAddr, Address amount, const Po
 {
 	NGPL_ASSERT(relAddr == 0);
 	NGPL_ASSERT2(false, "TBD!");
-	auto stackAddrAddr = (currentScope()->getFrameSize() + tempsOnStack - relAddr);//+1;
-	const auto stackAddr = (currentScope()->getFrameSize() + tempsOnStack) - amount;//+1;
+//	auto stackAddrAddr = (currentScope()->getFrameSize() + tempsOnStack - relAddr);//+1;
+//	const auto stackAddr = (currentScope()->getFrameSize() + tempsOnStack) - amount;//+1;
+	auto stackAddr = frameToStack(0) + 2;
 	for (auto i = amount; i --> 0;) {
-		addInstruction(Instrs::ReadStackF(stackAddrAddr, pos));
-		addInstruction(Instrs::WriteStackD(stackAddr, pos));
-		stackAddrAddr -= 1;
+		addInstruction(Instrs::Dup(0, pos));
+		addInstruction(Instrs::ReadStackF(stackAddr, pos));
+
+
+//		addInstruction(Instrs::ReadStackF(stackAddrAddr, pos));
+//		addInstruction(Instrs::WriteStackD(stackAddr, pos));
+//		stackAddrAddr -= 1;
 	}
 }
 

@@ -108,8 +108,7 @@ cat::WriterObjectABC& Scope::print(cat::WriterObjectABC& s) const
 		}
 	}
 	auto funcIt = cat::range(functions)
-			.map_c(LAMBDA(funcsPair) { return cat::range(funcsPair.second); })
-			.flatten()
+			.flatmap_c(LAMBDA(funcsPair) { return cat::range(funcsPair.second); })
 			.map_c(LAMBDA(funcPair)-> auto& { return funcPair.second; })
 			.iterate();
 	if (not hasTypes and not funcIt.isPastEnd()) {

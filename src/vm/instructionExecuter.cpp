@@ -55,7 +55,8 @@ void InstructionExecuter::executeInstruction()
 	} break;
 	case InstrID::READ_STCK_D: {
 		Address addr = Address(_temporaryStack.size()) - data.getValue<int64_t>() - 1;
-		addr -= _temporaryStack.pop().getValue<int64_t>();
+		const auto popedVal = _temporaryStack.pop().getValue<int64_t>();
+		addr -= popedVal;
 		_temporaryStack.push(_temporaryStack.at(addr));
 		++_programmCounter;
 	} break;
@@ -67,7 +68,8 @@ void InstructionExecuter::executeInstruction()
 	} break;
 	case InstrID::WRITE_STCK_D: {
 		Address addr = Address(_temporaryStack.size()) - data.getValue<int64_t>() - 1;
-		addr -= _temporaryStack.pop().getValue<int64_t>();
+		const auto popedVal = _temporaryStack.pop().getValue<int64_t>();
+		addr -= popedVal;
 		_temporaryStack.at(addr) = _temporaryStack.pop();
 		++_programmCounter;
 	} break;
@@ -83,12 +85,15 @@ void InstructionExecuter::executeInstruction()
 		++_programmCounter;
 	} break; */
 	case InstrID::READ_FR: {
-		auto addr = _temporaryStack.pop().getValue<int64_t>() + data.getValue<int64_t>();
+		const auto popedVal = _temporaryStack.pop().getValue<int64_t>();
+		auto addr = popedVal + data.getValue<int64_t>();
 		_temporaryStack.push(_variables.at(addr));
 		++_programmCounter;
 	} break;
 	case InstrID::READ_DR: {
-		auto addr = _temporaryStack.pop().getValue<int64_t>() + _temporaryStack.pop().getValue<int64_t>();
+		const auto popedVal1 = _temporaryStack.pop().getValue<int64_t>();
+		const auto popedVal2 = _temporaryStack.pop().getValue<int64_t>();
+		auto addr = popedVal1 + popedVal2;
 		_temporaryStack.push(_variables.at(addr));
 		++_programmCounter;
 	} break;
@@ -104,12 +109,15 @@ void InstructionExecuter::executeInstruction()
 //		++_programmCounter;
 //	} break;
 	case InstrID::WRITE_FR: {
-		auto addr = _temporaryStack.pop().getValue<int64_t>() + data.getValue<int64_t>();
+		const auto popedVal = _temporaryStack.pop().getValue<int64_t>();
+		auto addr = popedVal + data.getValue<int64_t>();
 		_variables.at(addr) = _temporaryStack.pop();
 		++_programmCounter;
 	} break;
 	case InstrID::WRITE_DR: {
-		auto addr = _temporaryStack.pop().getValue<int64_t>() + _temporaryStack.pop().getValue<int64_t>();
+		const auto popedVal1 = _temporaryStack.pop().getValue<int64_t>();
+		const auto popedVal2 = _temporaryStack.pop().getValue<int64_t>();
+		auto addr = popedVal1 + popedVal2;
 		_variables.at(addr) = _temporaryStack.pop();
 		++_programmCounter;
 	} break;

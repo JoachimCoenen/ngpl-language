@@ -73,7 +73,7 @@ cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const IntermediateSi
 	}
 	auto tuple = std::make_tuple(
 	MEMBER_PAIR_GET(v, id),
-	cat::makeCPair("data", dataStr),
+	cat::makeCRefPair("data", dataStr),
 	MEMBER_PAIR_GET(v, pos)
 	);
 	formatTupleLike2(s, tuple, {"(", ")"}, cat::_formatFuncKwArg, true);

@@ -54,8 +54,8 @@ HEADERS += \
 
 
 INCLUDEPATH += ../Cat/src
-win32:CONFIG(release, debug|release): LIBS += -L../../Cat/build-Cat-MinGW-Release/release -lCat
-win32:CONFIG(debug,   debug|release): LIBS += -L../../Cat/build-Cat-MinGW-Debug/debug -lCat
+#win32:CONFIG(release, debug|release): LIBS += -L../../Cat/build-Cat-MinGW-Release/release -lCat
+#win32:CONFIG(debug,   debug|release): LIBS += -L../../Cat/build-Cat-MinGW-Debug/debug -lCat
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin

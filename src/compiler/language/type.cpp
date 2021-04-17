@@ -7,16 +7,21 @@
 
 namespace ngpl {
 
-Type::Type() : Member("", "")
+Type::Type() : Member("", ""), _scope(nullptr)
 {}
 
 
-Type::Type(const std::string& name, const std::string& qualifier, uint64_t fixedSize, bool isBasic, bool isFinished)
-	: Member(name, qualifier), _fixedSize(fixedSize), _isBasic(isBasic), _isFinished(isFinished)
+Type::Type(const cat::String& name, const cat::String& qualifier, uint64_t fixedSize, TypeKind typeKind, bool isFinished)
+	: Member(name, qualifier), _scope(nullptr), _fixedSize(fixedSize), _typeKind(typeKind), _isFinished(isFinished)
 {}
 
+void Type::finish() {
+	_fixedSize = scope()->getFrameSize();
+	_isFinished = true;
+}
 
-//Type::Type(std::string&& name, uint64_t fixedSize, bool isBasic, bool isFinished)
+
+//Type::Type(cat::String&& name, uint64_t fixedSize, bool isBasic, bool isFinished)
 //	: _name(std::move(name)), _fixedSize(fixedSize), _isBasic(isBasic), _isFinished(isFinished)
 //{}
 
@@ -44,23 +49,6 @@ cat::WriterObjectABC& Type::print(cat::WriterObjectABC& s) const
 }
 
 
-FunctionSignature::FunctionSignature(std::vector<TypeCWeakPtr>&& argumentTypes
-)
-	: //_name(std::move(name)),
-	  //_returnType(std::move(returnType)),
-	  _argumentTypes(std::move(argumentTypes))
-{}
-
-std::string FunctionSignature::asCodeString() const
-{
-	return cat::range(argumentTypes()).map(LAMBDA(t){ return t->asCodeString(); }).join(", ");
-}
-
-std::string FunctionSignature::asQualifiedCodeString() const
-{
-	return cat::range(argumentTypes()).map(LAMBDA(t){ return t->asQualifiedCodeString(); }).join(", ");
-}
-
 cat::WriterObjectABC& operator +=(cat::WriterObjectABC& s, const Type& v)
 {
 	s += "Type";
@@ -73,14 +61,13 @@ cat::WriterObjectABC& operator +=(cat::WriterObjectABC& s, const Type& v)
 	return s;
 }
 
-cat::WriterObjectABC& operator +=(cat::WriterObjectABC& s, const FunctionSignature& v)
-{
-	s += "FunctionSignature";
-	auto tuple = std::make_tuple(
-	MEMBER_PAIR_GET(v, argumentTypes)
-	);
-	formatTupleLike2(s, tuple, {"(", ")"}, cat::_formatFuncKwArg, true);
-	return s;
+cat::WriterObjectABC& operator +=(cat::WriterObjectABC& s, const TypeKind& v) {
+	switch (v) {
+		FORMAT_ENUM_VAL_CASE(TypeKind, BASIC);
+		FORMAT_ENUM_VAL_CASE(TypeKind, TUPLE_LIKE);
+		FORMAT_ENUM_VAL_CASE(TypeKind, CLASS_LIKE);
+		FORMAT_ENUM_VAL_CASE(TypeKind, COMPLEX_ENUM);
+	}
 }
 
 

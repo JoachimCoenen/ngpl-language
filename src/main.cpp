@@ -13,6 +13,7 @@
 
 #include "toStringUtils.h"
 #include "cat_utils.h"
+#include "cat_string.h"
 
 #include <iostream>
 #include <fstream>
@@ -61,19 +62,39 @@ struct Timer {
 };
 
 using cat::range;
+using cat::String;
 
 
-void writeSrcStr(cat::WriterObjectABC& s, const std::string& src) {
+void writeSrcStr(cat::WriterObjectABC& s, const cat::String& src) {
 	s += cat::nlIndent;
 	s += src;
 	s += cat::nlIndent;
-	s += cat::IntRange(0ull, src.length()).map( LAMBDA_s(v, char(v % 10) + '0') ).toContainer<std::string>();
+	s += cat::IntRange(0ull, src.length()).map( LAMBDA_s(v, char(v % 10) + '0') ).toContainer<cat::String>();
 	s += cat::nlIndent;
-	s += cat::IntRange(0ull, src.length()).map( LAMBDA_s(v, v % 10 == 0 ? char(v / 10) + '0' : ' ') ).toContainer<std::string>();
+	s += cat::IntRange(0ull, src.length()).map( LAMBDA_s(v, v % 10 == 0 ? char(v / 10) + '0' : ' ') ).toContainer<cat::String>();
+}
+
+void writeFinalAssembler(cat::WriterObjectABC& s, const std::vector<ngpl::Instruction>& instructions, const std::vector<cat::String>& lines) {
+
+	for (size_t i = 0; i < instructions.size(); ++i) {
+		cat::String iStr = std::to_string(i);
+		auto paddLength = 4 - iStr.length();
+		s += cat::nl;
+		s += cat::String(paddLength, ' ');
+		s += i;
+		s += "   ";
+		auto instrString = instructions[i].toString();
+		s += instrString;
+
+		paddLength = 80 - instrString.length();
+		s += cat::String(paddLength, ' ');
+		s += "";
+		s += lines.at(instructions[i].pos().line());
+	}
 }
 
 
-ngpl::RootPtr parseFile(const std::string str) {
+ngpl::RootPtr parseFile(const cat::String str) {
 
 	ngpl::Parser p{ngpl::Tokenizer(str)};
 
@@ -84,14 +105,24 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 {
 
 	using namespace ngpl::main;
-	std::string str1 = "hello beautiful world!";
-	std::string str2 = "print(759)kkkkkkkkkkkkkkk";
+	cat::String str1 = "hello beautiful world!";
+	cat::String str2 = "print(759)kkkkkkkkkkkkkkk";
 	cat::OW out = cat::OW(std::cout);
 
+	if (argc != 2) {
+		out += "NGPL interpreter\n";
+		out += "  usage:\n";
+		out += "  ngpl <path to file>\n";
+		return 0;
+	}
 
-	std::string src;
+
+	String unitSourcePath = String(argv[1]); // TEST_UNIT_PATH
+	String unitPath = unitSourcePath.removeSuffix(NGPL_SOURCE_EXTENSION);
+
+	cat::String src;
 	{
-		std::ifstream infile(TEST_UNIT_PATH + NGPL_SOURCE_EXTENSION);
+		std::ifstream infile(unitPath + NGPL_SOURCE_EXTENSION);
 		std::stringstream buffer;
 		buffer << infile.rdbuf();
 		src = buffer.str();
@@ -104,7 +135,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 		ngpl::UnitPtr unit = nullptr;
 		try {
 			auto astRoot = parseFile(src);
-			unit = ctx.evalUnitDeclaration(astRoot.getRaw()->statements[0].as<ngpl::UnitDeclaration>());
+			unit = ctx.evalUnitDeclaration(astRoot->statements[0].as<ngpl::UnitDeclaration>());
 			compiledSuccessfull = true;
 		} catch (ngpl::SyntaxError& e) {
 
@@ -119,11 +150,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 				auto substr = errorLine.substr(0, e.pos().column());
 				columnPos = range(substr).map_c(LAMBDA(c){ return c == '\t' ? 4ul : 1ul; }).join();
 			}
-			std::string errorMarkerLine;
+			cat::String errorMarkerLine;
 			if (columnPos >= 2) {
-				errorMarkerLine = std::string(columnPos - 2, ' ') + "~~^~~";
+				errorMarkerLine = cat::String(columnPos - 2, ' ') + "~~^~~";
 			} else {
-				errorMarkerLine = std::string(columnPos, ' ') + "^~~";
+				errorMarkerLine = cat::String(columnPos, ' ') + "^~~";
 			}
 
 			auto errorLineForPrint = range(errorLine)
@@ -141,21 +172,23 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 		if (compiledSuccessfull) {
 			//write to File:
 			{
-				auto outFile = cat::FW(new std::ofstream(TEST_UNIT_PATH + NGPL_COMPILED_EXTENSION));
+				auto outFile = cat::FW(new std::ofstream(unitPath + NGPL_COMPILED_EXTENSION));
 				unit->print(outFile);
 			}
 
-			// optimizing:
-			ngpl::Optimizer().optimize(unit.getRaw());
+//			// optimizing:
+//			if (DO_OPTIMIZE_CODE) {
+//				ngpl::Optimizer().optimize(unit.weak());
+//			}
 
 			//write to File:
 			{
-				auto outFile = cat::FW(new std::ofstream(TEST_UNIT_PATH + "_opt" + NGPL_COMPILED_EXTENSION));
+				auto outFile = cat::FW(new std::ofstream(unitPath + "_opt" + NGPL_COMPILED_EXTENSION));
 				unit->print(outFile);
 			}
 
 			// linking:
-			ngpl::Linker linker({unit.getRaw()});
+			ngpl::Linker linker({unit.weak()});
 			linker.generateInstructionStream();
 			linker.linkFunctions();
 
@@ -165,22 +198,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 				.split_c(LAMBDA(v){ return v == '\n'; })
 				.map_c(LAMBDA(v){ return v.toString(); })
 				.toVector();
-			for (size_t i = 0; i < linker._instructions.size(); ++i) {
-
-				std::string iStr = std::to_string(i);
-				auto paddLength = 4 - iStr.length();
-				out += cat::nl;
-				out += std::string(paddLength, ' ');
-				out += i;
-				out += "   ";
-				auto instrString = linker._instructions[i].toString();
-				out += instrString;
-
-				paddLength = 80 - instrString.length();
-				out += std::string(paddLength, ' ');
-				out += "";
-				out += lines.at(linker._instructions[i].pos().line());
+			{
+				auto outFile = cat::FW(new std::ofstream(unitPath + "_asm" + NGPL_COMPILED_EXTENSION));
+				writeFinalAssembler(outFile, linker._instructions, lines);
 			}
+			writeFinalAssembler(out, linker._instructions, lines);
 			out += cat::nl;
 			out += cat::nl;
 			out += "----------------";
@@ -206,7 +228,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 			std::cout << std::setw(8) << std::fixed << std::setprecision(2) <<  executer._overallCounter/(duration / 1e6) << " instr/ms";
 		}
 		out += cat::nlIndent;
-		out += "FINISHED !";
+		out += "FINISHED ";
+		out += unitPath + NGPL_SOURCE_EXTENSION;
 
 	}
 	out += cat::nlIndent;

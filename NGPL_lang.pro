@@ -14,12 +14,18 @@ DEFINES += QT_DEPRECATED_WARNINGS
 # You can also select to disable deprecated APIs only up to a certain version of Qt.
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
+DEFINES += CAT_ENABLE_ALL_BOUNDS_CHECKS=1
+
 win32:CONFIG(release, debug|release): QMAKE_CXXFLAGS += -O3 -Wno-comment
 win32:CONFIG(debug,   debug|release): QMAKE_CXXFLAGS += -Wno-comment
 
 INCLUDEPATH += src
 
+include(ext/ordered-map/ordered-map.pri)
+include(src/builtins/builtins.pri)
 include(src/compiler/compiler.pri)
+include(src/intermediate/intermediate.pri)
+include(src/executor/executor.pri)
 
 SOURCES += \
 	src/language/ast.cpp \
@@ -27,9 +33,11 @@ SOURCES += \
 	src/main.cpp \
 	src/mainHelper.cpp \
 	src/util/instructionID.cpp \
+	src/vm/callStack.cpp \
 	src/vm/instruction.cpp \
 	src/vm/instructionExecuter.cpp \
 	src/vm/object.cpp \
+	src/vm/reference.cpp \
 	src/vm/value.cpp
 
 
@@ -43,9 +51,11 @@ HEADERS += \
 	src/util/instructionID.h \
 	src/util/instructions_inc.h \
 	src/util/types.h \
+	src/vm/callStack.h \
 	src/vm/instruction.h \
 	src/vm/instructionExecuter.h \
 	src/vm/object.h \
+	src/vm/reference.h \
 	src/vm/value.h \
 	src/vm/vm_util.h
 
@@ -53,7 +63,11 @@ HEADERS += \
 
 
 
-INCLUDEPATH += ../Cat/src
+INCLUDEPATH += \
+	ext/ordered-map/include \
+	../Cat/src \
+	../Cat/CatPointers/src \
+	../Cat/CatContainers/src
 #win32:CONFIG(release, debug|release): LIBS += -L../../Cat/build-Cat-MinGW-Release/release -lCat
 #win32:CONFIG(debug,   debug|release): LIBS += -L../../Cat/build-Cat-MinGW-Debug/debug -lCat
 

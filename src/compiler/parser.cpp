@@ -6,6 +6,7 @@
 
 #include "cat_utils.h"
 #include "cat_stack.h"
+#include "cat_exception.h"
 
 
 using cat::SW;
@@ -215,15 +216,12 @@ TypeDeclarationPtr Parser::parseTypeDeclaration()
 	acceptToken("=");
 
 	if (tryAcceptToken("struct")) {
-		acceptToken("{");
-
-		std::vector<DeclarationPtr> declarations;
-		while (not tokenizer.isPastEnd() and not cat::isAnyOf(currentToken().content, "}")) {
-			declarations.push_back(parseDeclaration());
-		}
-		acceptToken("}");
-
+		auto declarations = parseTypeBody();
 		return { new StructDeclaration(std::move(nameTk.content), std::move(declarations), pos)};
+
+	} else if (tryAcceptToken("class")) {
+		auto declarations = parseTypeBody();
+		return { new ClassDeclaration(std::move(nameTk.content), std::move(declarations), pos)};
 
 	} else {
 		throw SyntaxError(cat::SW() << "Unsupprted Type declaration for 'type " << nameTk.content << "' = " << currentToken().content << "'.", currentToken().pos);
@@ -232,10 +230,28 @@ TypeDeclarationPtr Parser::parseTypeDeclaration()
 
 }
 
+std::vector<DeclarationPtr> Parser::parseTypeBody()
+{
+	acceptToken("{");
+
+	std::vector<DeclarationPtr> declarations;
+	while (not tokenizer.isPastEnd() and not cat::isAnyOf(currentToken().content, "}")) {
+		declarations.push_back(parseDeclaration());
+	}
+	acceptToken("}");
+
+	return declarations;
+}
+
 TypeExprPtr Parser::parseTypeExpr()
 {
 	auto name = acceptToken(TokenKind::IDENTIFIER);
-	return {new TypeExpr{std::move(name.content), name.pos}};
+	std::vector<TypeExprPtr> arguments;
+	if (wouldAcceptToken("<")) {
+		arguments = parseTypeArguments();
+	}
+
+	return {new TypeExpr{std::move(name.content), false, std::move(arguments), name.pos}};
 }
 
 AssignmentPtr Parser::parseAssignment(VariableReferencePtr&& variableReference)
@@ -359,7 +375,7 @@ ExpressionPtr Parser::parseExpression()
 	}
 
 	if (exprStack.size() != 1) {
-		throw cat::SimpleError(cat::SW() << "Invalid expressions stack size while parsing an expression.");
+		throw cat::Exception(cat::SW() << "Invalid expressions stack size while parsing an expression.");
 	}
 
 	// at last, collapse all parked operators:
@@ -371,17 +387,17 @@ ExpressionPtr Parser::parseExpression()
 	}
 
 	if (exprParking.size() != 0) {
-		throw cat::SimpleError(cat::SW() << "Invalid expressions parking stack size while parsing an expression.");
+		throw cat::Exception(cat::SW() << "Invalid expressions parking stack size while parsing an expression.");
 	}
 	if (operParking.size() != 0) {
-		throw cat::SimpleError(cat::SW() << "Invalid operators parking stack size while parsing an expression.");
+		throw cat::Exception(cat::SW() << "Invalid operators parking stack size while parsing an expression.");
 	}
 
 	return expr;
 	//Expression
 }
 
-BlockPtr Parser::parseBlock(const std::initializer_list<std::string>& endMarkers)
+BlockPtr Parser::parseBlock(const std::initializer_list<cat::String>& endMarkers)
 {
 	auto pos = currentToken().pos;
 	std::vector<StatementPtr> statements;
@@ -414,6 +430,24 @@ UnaryOperatorCallPtr Parser::parseUnaryOperator()
 	return {new UnaryOperatorCall{std::move(oper.content), std::move(operand), oper.pos}};
 }
 
+std::vector<TypeExprPtr> Parser::parseTypeArguments()
+{
+	std::vector<TypeExprPtr> result;
+	acceptToken("<");
+	if (wouldAcceptToken(">")) {
+		acceptToken(">");
+		return result;
+	}
+
+	result.push_back(parseTypeExpr());
+	while (tryAcceptToken(",")) {
+		result.push_back(parseTypeExpr());
+	}
+	acceptToken(">");
+
+	return result;
+}
+
 std::vector<ExpressionPtr> Parser::parseTuple()
 {
 	std::vector<ExpressionPtr> result;
@@ -423,7 +457,6 @@ std::vector<ExpressionPtr> Parser::parseTuple()
 		return result;
 	}
 
-
 	result.push_back(parseExpression());
 	while (tryAcceptToken(",")) {
 		result.push_back(parseExpression());
@@ -431,7 +464,6 @@ std::vector<ExpressionPtr> Parser::parseTuple()
 	acceptToken(")");
 
 	return result;
-
 }
 
 LiteralBoolPtr Parser::parseBoolean()
@@ -462,12 +494,12 @@ bool Parser::wouldAcceptToken(TokenKind kind) const
 	return currentToken().kind == kind;
 }
 
-bool Parser::wouldAcceptToken(const std::string& str) const
+bool Parser::wouldAcceptToken(const cat::String& str) const
 {
 	return currentToken().content == str;
 }
 
-bool Parser::wouldAcceptAnyOfToken(const std::initializer_list<std::string>& strs) const
+bool Parser::wouldAcceptAnyOfToken(const std::initializer_list<cat::String>& strs) const
 {
 	return cat::isAnyOf_alt(currentToken().content, strs);
 }
@@ -482,7 +514,7 @@ bool Parser::tryAcceptToken(TokenKind kind)
 	return false;
 }
 
-bool Parser::tryAcceptToken(const std::string& str)
+bool Parser::tryAcceptToken(const cat::String& str)
 {
 	if (wouldAcceptToken(str)) {
 		checkNotEndOfStream(str); // throws
@@ -492,15 +524,15 @@ bool Parser::tryAcceptToken(const std::string& str)
 	return false;
 }
 
-bool Parser::tryAcceptAnyOfToken(const std::initializer_list<std::string>& strs)
+bool Parser::tryAcceptAnyOfToken(const std::initializer_list<cat::String>& strs)
 {
 	if (wouldAcceptAnyOfToken(strs)) {
-//		std::string expectation = cat::SW()
+//		cat::String expectation = cat::SW()
 //				<< "any of: "
 //				<< cat::range(strs).map(LAMBDA(s){ return cat::formatVal(s); }).join(", ");
 //		checkNotEndOfStreamNonFormatted(expectation); // throws
 		auto strsv = std::vector(strs);
-		auto sep = std::string(", ");
+		auto sep = cat::String(", ");
 		checkNotEndOfStream(cat::range(strsv).join(sep)); // throws
 		tokenizer.advance();
 		return true;
@@ -520,7 +552,7 @@ Token Parser::acceptToken(TokenKind kind)
 	return token;
 }
 
-Token Parser::acceptToken(const std::string& str)
+Token Parser::acceptToken(const cat::String& str)
 {
 	checkNotEndOfStream(str);
 	auto token = currentToken();
@@ -534,10 +566,10 @@ Token Parser::acceptToken(const std::string& str)
 	return token;
 }
 
-Token Parser::acceptAnyOfToken(const std::initializer_list<std::string>& strs)
+Token Parser::acceptAnyOfToken(const std::initializer_list<cat::String>& strs)
 {
 	auto strsv = std::vector(strs);
-	auto sep = std::string(", ");
+	auto sep = cat::String(", ");
 	checkNotEndOfStream(cat::range(strsv).join(sep));
 	auto token = currentToken();
 	if (not wouldAcceptAnyOfToken(strs)) {
@@ -555,7 +587,7 @@ Token Parser::acceptAnyOfToken(const std::initializer_list<std::string>& strs)
 
 namespace ngpl { // Errors
 
-void Parser::raiseEndOfStreamError(const std::string& expectation) const
+void Parser::raiseEndOfStreamError(const cat::String& expectation) const
 {
 	throw SyntaxError(cat::SW() << "Reached end fostream, but expected " << expectation << ".", tokenizer.getPos());
 }

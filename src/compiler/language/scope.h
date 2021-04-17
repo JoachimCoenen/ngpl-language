@@ -7,43 +7,47 @@
 #include "function.h"
 #include "variable.h"
 
+#include <tsl/ordered_map.h>
 #include <unordered_map>
 
 namespace ngpl {
 
-PTRS_FOR_CLASS(Scope)
+PTRS_FOR_CLASS(Scope);
 class Scope: public IIntermediateCodePrintable {
 public:
 	Scope(Address&& salt) : salt(std::move(salt)) {}
 
 	const Address& getFrameSize() const { return salt; }
 
-	std::unordered_map<std::string, std::unordered_map<FunctionSignature, FunctionPtr>>& getFunctions() { return functions; }
-	const std::unordered_map<std::string, std::unordered_map<FunctionSignature, FunctionPtr>>& getFunctions() const { return functions; }
+	std::unordered_map<cat::String, FunctionOverloads>& getFunctions() { return functions; }
+	const std::unordered_map<cat::String, FunctionOverloads>& getFunctions() const { return functions; }
 
-	std::unordered_map<std::string, TypePtr>& getTypes() { return types; }
-	const std::unordered_map<std::string, TypePtr>& getTypes() const { return types; }
+	std::unordered_map<cat::String, TypePtr>& getTypes() { return types; }
+	const std::unordered_map<cat::String, TypePtr>& getTypes() const { return types; }
 
-	VariableCWeakPtr setVariable(const std::string& name, VariablePtr&& variable);
-	VariableCWeakPtr addVariable(const std::string& name, VariablePtr&& variable);
-	void addType(const std::string& name, TypePtr&& type);
-	void addFunction(const std::string& name, FunctionSignature&& signature, FunctionPtr&& function);
+	const tsl::ordered_map<cat::String, VariableCPtr>& getVariables() const { return variables; }
 
-	VariableCWeakPtr tryGetVariable(const std::string& name) const;
+	VariableCWeakPtr setVariable(const cat::String& name, VariablePtr&& variable);
+	VariableCWeakPtr addVariable(const cat::String& name, VariablePtr&& variable);
+	void addType(const cat::String& name, TypePtr&& type);
+	FunctionBaseWeakPtr addFunction(FunctionBasePtr&& function);
+	bool canAddFunction(const cat::String& name, const FunctionSignature& signature, cat::String& reasonOut) const;
 
-	FunctionBaseWeakPtr tryGetFunction(const std::string& name, const FunctionSignature& signature);
-	FunctionBaseCWeakPtr tryGetFunction(const std::string& name, const FunctionSignature& signature) const;
+	VariableCWeakPtr tryGetVariable(const cat::String& name) const;
 
-	TypeWeakPtr tryGetType(const std::string& name);
-	TypeCWeakPtr tryGetType(const std::string& name) const;
+	FunctionOverloadsCWeakPtr tryGetFunctionOverloads(const cat::String& name) const;
+	FunctionBaseCWeakPtr tryGetFunction(const cat::String& name, const CallArgTypes& argTypes) const;
+
+	TypeWeakPtr tryGetType(const cat::String& name);
+	TypeCWeakPtr tryGetType(const cat::String& name) const;
 
 	cat::WriterObjectABC& print(cat::WriterObjectABC& s) const override final;
 
 protected:
 	Address salt;
-	std::unordered_map<std::string, VariableCPtr> variables;
-	std::unordered_map<std::string, std::unordered_map<FunctionSignature, FunctionPtr>> functions = {};
-	std::unordered_map<std::string, TypePtr> types;
+	tsl::ordered_map<cat::String, VariableCPtr> variables;
+	std::unordered_map<cat::String, FunctionOverloads> functions = {};
+	std::unordered_map<cat::String, TypePtr> types;
 
 };
 

@@ -7,34 +7,33 @@
 #include "util/instructionID.h"
 #include "util/types.h"
 
+#include "cat_string.h"
 #include "cat_variant.h"
-
-#include <string>
 
 namespace ngpl {
 
 struct Instruction: public IIntermediateCodePrintable {
 	InstructionID id() const { return _id; }
-	// std::string holds the name of a variable.
+	// cat::String holds the name of a variable.
 	// void* is a non-owning ptr to a ngpl::Function object.
-	const cat::Variant<None_, std::string, int64_t, const void*>& data() const { return _data; }
+	const cat::Variant<None_, cat::String, int64_t, const void*>& data() const { return _data; }
 
 	cat::WriterObjectABC& print(cat::WriterObjectABC& s) const override final;
-	std::string toString() const;
+	cat::String toString() const;
 
 
 	const Position& pos() const { return _pos; }
 
-	Instruction(InstructionID id, const cat::Variant<None_, std::string, int64_t, const void*>& data, const Position& pos)
+	Instruction(InstructionID id, const cat::Variant<None_, cat::String, int64_t, const void*>& data, const Position& pos)
 		: _id(id),
 		  _data(data),
 		  _pos(pos)
 	{}
 protected:
 	InstructionID _id;
-	// std::string holds the name of a variable.
+	// cat::String holds the name of a variable.
 	// void* is a non-owning ptr to a ngpl::Function object.
-	cat::Variant<None_, std::string, int64_t, const void*> _data;
+	cat::Variant<None_, cat::String, int64_t, const void*> _data;
 	Position _pos;
 
 	friend class Instructions;

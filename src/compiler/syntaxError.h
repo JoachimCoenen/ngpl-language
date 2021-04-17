@@ -3,7 +3,7 @@
 
 #include "../language/position.h"
 
-#include "cat_utils.h"
+#include "cat_exception.h"
 
 
 namespace ngpl {
@@ -12,14 +12,14 @@ class SyntaxError : public cat::Exception
 {
 	// TODO: maybe add token argument to SyntaxError?
 public:
-	SyntaxError(const std::string& message, const Position& pos);
+	SyntaxError(const cat::String& message, const Position& pos);
 
 	const Position& pos() const { return _pos; }
-	const std::string& rawMessage() const { return _rawMessage; }
+	const cat::String& rawMessage() const { return _rawMessage; }
 
 protected:
 	Position _pos;
-	std::string _rawMessage;
+	cat::String _rawMessage;
 };
 
 }

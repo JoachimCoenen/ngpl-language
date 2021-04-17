@@ -12,8 +12,9 @@
 #include "language/type.h"
 #include "language/unit.h"
 
+#include "cat_string.h"
+
 #include <functional>
-#include <string>
 #include <map>
 #include <unordered_map>
 
@@ -22,6 +23,9 @@ namespace itm = ngpl::intermediate;
 }
 
 namespace ngpl {
+
+using BuiltinTypesMap = std::unordered_map<cat::String, TypeCPtr>;
+using BuiltinFunctionsMap = std::unordered_map<cat::String, FunctionOverloads>;
 
 class CodeGenerator
 {
@@ -32,20 +36,26 @@ public:
 	UnitPtr evalUnitDeclaration(const UnitDeclarationCWeakPtr& unitDecl);
 
 
-	TypeCWeakPtr evalLiteral(const LiteralCWeakPtr& literal);
-	TypeCWeakPtr evalExpression(const ExpressionCWeakPtr& expr);
-	TypeCWeakPtr evalFunction(const FunctionBaseCWeakPtr& func, const Position& pos);
+	TypeReference evalLiteral(const LiteralCWeakPtr& literal);
+	TypeReference evalExpression(const ExpressionCWeakPtr& expr, bool asReference = false);
+private:
+	TypeReference _evalExpression_(const ExpressionCWeakPtr& expr, bool asReference = false);
+public:
+	TypeReference evalFunction(const FunctionBaseCWeakPtr& func, const Position& pos);
 	void evalStatement(const StatementCWeakPtr& stmt);
 	void evalBlock(const BlockCWeakPtr& block);
 
+	FunctionSignature makeFunctionSignature(FuncDeclarationCWeakPtr funcDecl);
+	void evalFunctionSignature(FuncDeclarationCWeakPtr funcDecl);
 	void evalDeclaration(const DeclarationCWeakPtr& decl);
+	void evalTypeDeclaration(const TypeDeclarationCWeakPtr& typeDecl);
 
 	void writeBuiltinFunctions();
 
 	cat::WriterObjectABC& toString(cat::WriterObjectABC& s) const;
 
 	//std::vector<Instruction> _instructions;
-	std::vector<ScopePtr> scopeStack;//{Scope("0ROOT")};
+	std::vector<ScopeSharedPtr> scopeStack;//{Scope("0ROOT")};
 	std::vector<itm::IntermediateCodeContainerWeakPtr> codeContainerStack;
 	cat::Stack<TypeWeakPtr> typeStack;
 	int64_t tempsOnStack = 0;
@@ -53,35 +63,61 @@ public:
 	bool isGlobal() const { return scopeStack.size() == 1; }
 	int64_t staticHeapSize = 0;
 
-	static const std::unordered_map<std::string, TypeCPtr> builtinTypes;
-
-	static const std::unordered_map<std::string, std::unordered_map<FunctionSignature, BuiltinFunction>> builtinFunctions;
 
 protected:
 	using InterInstr = intermediate::IntermediateSimpleInstruction;
 
-	VariableCWeakPtr tryGetVariable(const std::string& name) const;
-	VariableCWeakPtr getVariable(const std::string& name, const Position& pos) const;
-	Variable evalVariableReference(const VariableReferenceCWeakPtr& variable);
-	bool hasVariable(const std::string& name) const;
+	VariableCWeakPtr tryGetVariable(const cat::String& name) const;
+	VariableCWeakPtr getVariable(const cat::String& name, const Position& pos) const;
+	std::pair<Variable, bool> evalVariableReference(const VariableReferenceCWeakPtr& variable);
+	bool hasVariable(const cat::String& name) const;
 
-	BuiltinFunctionCWeakPtr tryGetBuiltinFunction(const std::string& name, const FunctionSignature& signature) const;
-	FunctionBaseCWeakPtr getFunction(const std::string& name, const FunctionSignature& signature, const Position& pos) const;
-	bool hasFunction(const std::string& name, const FunctionSignature& signature) const;
+	VariableCWeakPtr allocateStackVariable(const cat::String& name, TypeReference&& type, bool isConst, bool valuesAlreadyOnStack, const Position& pos);
+	/*VariableCWeakPtr allocateHeapVariable(const cat::String& name, TypeReference&& type, ReferenceMode referenceMode, bool isConst)
+	{
+		const bool isGlobal = this->isGlobal();
+		if (isGlobal) {
+			auto variable = currentScope()->addVariable(name, new Variable(TypeReference{*declType}, staticHeapSize, ReferenceMode::HEAP_VAL, true, isConst));
+			staticHeapSize += variable->type().fixedSize();
+			writeToHeapF(variable->address(), variable->type().fixedSize(), varDecl->pos);
+			NGPL_ASSERT(tempsOnStack == 0);
+		} else {
+			auto variable = currentScope()->addVariable(name, new Variable(TypeReference{*declType}, 0, ReferenceMode::STACK_VAL, true, isConst));
+			NGPL_ASSERT(tempsOnStack == int64_t(variable->type().fixedSize()) or tempsOnStack == 0);
+			tempsOnStack = 0;
+		}
 
-	TypeCWeakPtr tryGetBuiltinType(const std::string& name) const;
-	TypeCWeakPtr tryGetType(const std::string& name) const;
-	TypeCWeakPtr getType(const std::string& name, const Position& pos) const;
-	bool hasType(const std::string& name) const;
+	}*/
+
+	void defaultInit(const TypeReference& typeRef, const Position& pos);
+
+	static BuiltinFunctionCWeakPtr tryGetBuiltinFunction(const cat::String& name, const CallArgTypes& argTypes);
+	FunctionBaseCWeakPtr getFunction(const cat::String& name, const CallArgTypes& argTypes, const Position& pos) const;
+	bool hasFunction(const cat::String& name, const CallArgTypes& argTypes) const;
+	bool canAddFunction(const cat::String& name, const FunctionSignature& signature, cat::String& reasonOut) const;
+
+	static TypeCWeakPtr tryGetBuiltinType(const cat::String& name);
+	TypeCWeakPtr tryGetType(const cat::String& name) const;
+	TypeCWeakPtr getType(const cat::String& name, const Position& pos) const;
+	bool hasType(const cat::String& name) const;
+	TypeReference getTypeRef(const cat::String& name, std::vector<TypeReference>&& arguments, bool isReference, const Position& pos) const;
+	inline TypeReference getTypeRef(const cat::String& name, bool isReference, const Position& pos) const {
+		return getTypeRef(name, {}, isReference, pos);
+	};
+	inline TypeReference getTypeRef(const cat::String& name, const Position& pos) const {
+		return getTypeRef(name, false, pos);
+	}
+
+	TypeReference getTypeRef(const TypeExprCWeakPtr typeExpr) const;
 
 
 
-	void checkType(const TypeCWeakPtr& expectation, const TypeCWeakPtr& reality, const Position& pos) const;
+	void checkType(const TypeReference& expectation, const TypeReference& reality, const Position& pos) const;
 
 	void pushScope(bool newStackFrame = false);
 	void popScope();
-	inline ScopeWeakPtr currentScope() { return scopeStack.back().getRaw(); }
-	inline const ScopeCWeakPtr currentScope() const { return scopeStack.back().getRaw(); }
+	inline const ScopeSharedPtr currentScope() { return scopeStack.back(); }
+	inline const ScopeCWeakPtr currentScope() const { return scopeStack.back().weak(); }
 	inline itm::IntermediateCodeContainerWeakPtr& currentInstructioins() { return codeContainerStack.back(); }
 	inline const itm::IntermediateCodeContainerWeakPtr& currentInstructioins() const { return codeContainerStack.back(); }
 
@@ -93,21 +129,24 @@ protected:
 	 */
 	Address frameToStack(Address a) const;
 
+	void refFromVariable(VariableCWeakPtr variable, const Position& pos);
 
-	void readFromVariable(VariableCWeakPtr variable, const Position& pos);
-	void writeToVariable(VariableCWeakPtr variable, const Position& pos);
+	void readFromVariable(VariableCWeakPtr variable, bool isReference, const Position& pos);
+	inline void readFromVariable(VariableCWeakPtr variable, const Position& pos) { return readFromVariable(variable, false, pos); }
+	void writeToVariable(VariableCWeakPtr variable, bool isReference, const Position& pos);
+	inline void writeToVariable(VariableCWeakPtr variable, const Position& pos) { return writeToVariable(variable, false, pos); }
 
 	void readFromStackFrameF(Address relAddr, Address amount, const Position& pos);
 	void writeToStackFrameF(Address relAddr, Address amount, const Position& pos);
 
-	void readFromStackFrameD(Address relAddr, Address amount, const Position& pos);
-	void writeToStackFrameD(Address relAddr, Address amount, const Position& pos);
+	void readFromStackFrameD(Address relAddr, Address amount, Address fixedOffset, const Position& pos);
+	void writeToStackFrameD(Address relAddr, Address amount, Address fixedOffset, const Position& pos);
 
 	void readFromHeapF(Address addr, Address amount, const Position& pos);
 	void writeToHeapF(Address addr, Address amount, const Position& pos);
 
-	void readFromHeapD(Address relAddr, Address amount, const Position& pos);
-	void writeToHeapD(Address relAddr, Address amount, const Position& pos);
+	void readFromHeapD(Address relAddr, Address amount, Address fixedOffset, const Position& pos);
+	void writeToHeapD(Address relAddr, Address amount, Address fixedOffset, bool isTemprary, const Position& pos);
 
 	void cleanupStack(uint16_t amount, const Position& pos);
 
@@ -136,9 +175,9 @@ protected:
 	}
 
 
-//    static const std::map<std::string, std::function<Value(const std::vector<Value>&)>> globalFunctions_;
-//    static const std::map<std::string, std::function<Value(const Value&, const Value&)>> biOperators;
-//    static const std::map<std::string, std::function<Value(const Value&)>> unaryOperators;
+//    static const std::map<cat::String, std::function<Value(const std::vector<Value>&)>> globalFunctions_;
+//    static const std::map<cat::String, std::function<Value(const Value&, const Value&)>> biOperators;
+//    static const std::map<cat::String, std::function<Value(const Value&)>> unaryOperators;
 
 };
 

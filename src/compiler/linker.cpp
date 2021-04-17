@@ -65,14 +65,14 @@ void Linker::generateInstructionStream(ScopeCWeakPtr scope)
 	foreach_c(func, cat::range(scope->getFunctions())
 			  .map_c(LAMBDA(funcsPair) { return cat::range(funcsPair.second); })
 			  .flatten()
-			  .map_c(LAMBDA(funcPair) { return funcPair.second.getRaw(); })
+			  .map_c(LAMBDA(func) { return func.template as<Function>(); })
 	) {
 		_functionEntryPoints[func->asQualifiedCodeString()] = _instructions.size();
 		generateInstructionStream(&func->body());
 	}
 
 	foreach_c(type, cat::range(scope->getTypes())
-			  .map_c(LAMBDA(typePair) { return typePair.second.getRaw(); })
+			  .map_c(LAMBDA(typePair) { return typePair.second.weak(); })
 	) {
 		_functionEntryPoints[type->asQualifiedCodeString()] = _instructions.size();
 		generateInstructionStream(type->scope());
@@ -148,7 +148,7 @@ void Linker::linkFunctions()
 	cat::range(_instructions)
 			.filter(LAMBDA(instr) { return instr.id() == InstructionID::CALL2; })
 			.forEach([&](auto& instr){
-						 Address funcAddress = _functionEntryPoints[instr.data().template getValue<std::string>()];
+						 Address funcAddress = _functionEntryPoints[instr.data().template getValue<cat::String>()];
 						 instr = Instrs::JumpFA(funcAddress, instr.pos());
 
 					 });

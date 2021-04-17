@@ -6,17 +6,18 @@
 
 #include "util/types.h"
 
-#include "cat_typing.h"
-#include "toStringUtils.h"
+#include "catPointers.h"
 #include "ranges.h"
+#include "cat_string.h"
+#include "toStringUtils.h"
+#include "cat_typing.h"
 
-#include <string>
 #include <vector>
 
 namespace ngpl {
 
 struct IFormattable {
-	virtual std::string getTypeName() const { return "IFormattable";}
+	virtual cat::String getTypeName() const { return "IFormattable";}
 	virtual cat::WriterObjectABC& _formatVal(cat::WriterObjectABC& s) const = 0;
 
 protected:
@@ -46,7 +47,7 @@ namespace ngpl {
 #define NON_COPY_FORMATTABLE(Cls, Supertype)				\
 	Cls(const Cls &) = delete;					\
 	Cls& operator = (const Cls &) = delete;		\
-	std::string getTypeName() const override {	\
+	cat::String getTypeName() const override {	\
 		static_assert (std::is_same_v<const Cls, typeof (*this)>);	\
 		return #Cls;							\
 	}											\
@@ -81,7 +82,7 @@ STRUCT_WITH_PTR(Statement) : public Node {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple();
 	}
-	NON_COPY_FORMATTABLE(Statement, Node)
+	NON_COPY_FORMATTABLE(Statement, Node);
 	Statement(const Position& pos) 
 		: Node(pos) 
 	{ };
@@ -95,7 +96,7 @@ STRUCT_WITH_PTR(Root) : public Node {
 			MEMBER_PAIR(*this, statements)
 		);
 	}
-	NON_COPY_FORMATTABLE(Root, Node)
+	NON_COPY_FORMATTABLE(Root, Node);
 	std::vector<StatementPtr> statements;
 
 	Root(const Position& pos) : Node(pos), statements() {}
@@ -110,7 +111,7 @@ STRUCT_WITH_PTR(Expression) : public Statement {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple();
 	}
-	NON_COPY_FORMATTABLE(Expression, Statement)
+	NON_COPY_FORMATTABLE(Expression, Statement);
 	Expression(const Position& pos) 
 		: Statement(pos)
 	{ };
@@ -118,7 +119,7 @@ STRUCT_WITH_PTR(Expression) : public Statement {
 
 
 STRUCT_WITH_PTR(Literal) : public Expression {
-	NON_COPY_FORMATTABLE(Literal, Expression)
+	NON_COPY_FORMATTABLE(Literal, Expression);
 
 	Literal(const Position& pos) 
 		: Expression(pos) 
@@ -134,7 +135,7 @@ STRUCT_WITH_PTR(LiteralBool) : public Literal {
 			MEMBER_PAIR(*this, value)
 		);
 	}
-	NON_COPY_FORMATTABLE(LiteralBool, Literal)
+	NON_COPY_FORMATTABLE(LiteralBool, Literal);
 	bool value;
 
 	LiteralBool(bool v, const Position& pos)
@@ -153,7 +154,7 @@ STRUCT_WITH_PTR(LiteralInt) : public Literal {
 			MEMBER_PAIR(*this, value)
 		);
 	}
-	NON_COPY_FORMATTABLE(LiteralInt, Literal)
+	NON_COPY_FORMATTABLE(LiteralInt, Literal);
 	int64_t value;
 
 	LiteralInt(int64_t v, const Position& pos)
@@ -172,13 +173,13 @@ STRUCT_WITH_PTR(LiteralString) : public Literal {
 			MEMBER_PAIR(*this, value)
 		);
 	}
-	NON_COPY_FORMATTABLE(LiteralString, Literal)
-	std::string value;
+	NON_COPY_FORMATTABLE(LiteralString, Literal);
+	cat::String value;
 
-	LiteralString(const std::string& v, const Position& pos) 
+	LiteralString(const cat::String& v, const Position& pos)
 		: Literal(pos), value(v) 
 	{}
-	LiteralString(std::string&& v, const Position& pos) 
+	LiteralString(cat::String&& v, const Position& pos)
 		: Literal(pos), value(std::move(v)) 
 	{}
 
@@ -194,10 +195,10 @@ STRUCT_WITH_PTR(VariableReference) : public Expression {
 			MEMBER_PAIR(*this, name)
 		);
 	}
-	NON_COPY_FORMATTABLE(VariableReference, Expression)
-	std::string name;
+	NON_COPY_FORMATTABLE(VariableReference, Expression);
+	cat::String name;
 
-	VariableReference(std::string&& name, const Position& pos)
+	VariableReference(cat::String&& name, const Position& pos)
 	   : Expression(pos), name(std::move(name)) {}
 };
 
@@ -208,10 +209,10 @@ STRUCT_WITH_PTR(MemberAccess) : public VariableReference {
 		   // MEMBER_PAIR(*this, name)
 	   );
    }
-   NON_COPY_FORMATTABLE(MemberAccess, VariableReference)
+   NON_COPY_FORMATTABLE(MemberAccess, VariableReference);
 	ExpressionPtr parent;
 
-	MemberAccess(std::string&& name, ExpressionPtr&& parent, const Position& pos)
+	MemberAccess(cat::String&& name, ExpressionPtr&& parent, const Position& pos)
 	  : VariableReference(std::move(name), pos), parent(std::move(parent)) {}
 };
 
@@ -224,12 +225,12 @@ STRUCT_WITH_PTR(FunctionCall) : public Expression {
 			MEMBER_PAIR(*this, arguments)
 		);
 	}
-	NON_COPY_FORMATTABLE(FunctionCall, Expression)
-	std::string name;
+	NON_COPY_FORMATTABLE(FunctionCall, Expression);
+	cat::String name;
 	ExpressionPtr parent;
 	std::vector<ExpressionPtr> arguments;
 
-	FunctionCall(std::string&& name, ExpressionPtr&& parent, std::vector<ExpressionPtr>&& args, const Position& pos)
+	FunctionCall(cat::String&& name, ExpressionPtr&& parent, std::vector<ExpressionPtr>&& args, const Position& pos)
 	   : Expression(pos), name(std::move(name)), parent(std::move(parent)), arguments(std::move(args)) {}
 };
 
@@ -241,11 +242,11 @@ STRUCT_WITH_PTR(UnaryOperatorCall) : public Expression {
 			MEMBER_PAIR(*this, operand)
 		);
 	}
-	NON_COPY_FORMATTABLE(UnaryOperatorCall, Expression)
-	std::string name;
+	NON_COPY_FORMATTABLE(UnaryOperatorCall, Expression);
+	cat::String name;
 	ExpressionPtr operand;
 
-	UnaryOperatorCall(std::string&& name, ExpressionPtr&& operand, const Position& pos)
+	UnaryOperatorCall(cat::String&& name, ExpressionPtr&& operand, const Position& pos)
 		: Expression(pos), name(std::move(name)), operand(std::move(operand)) {}
 };
 
@@ -258,15 +259,15 @@ STRUCT_WITH_PTR(BinaryOperatorCall) : public Expression {
 			MEMBER_PAIR(*this, rhs)
 		);
 	}
-	NON_COPY_FORMATTABLE(BinaryOperatorCall, Expression)
-	std::string name;
+	NON_COPY_FORMATTABLE(BinaryOperatorCall, Expression);
+	cat::String name;
 	ExpressionPtr lhs;
 	ExpressionPtr rhs;
 
-	BinaryOperatorCall(std::string&& name, ExpressionPtr&& lhs, ExpressionPtr&& rhs, const Position& pos)
+	BinaryOperatorCall(cat::String&& name, ExpressionPtr&& lhs, ExpressionPtr&& rhs, const Position& pos)
 		: Expression(pos), name(std::move(name)), lhs(std::move(lhs)), rhs(std::move(rhs)) {}
 
-	static int getPrecedence(const std::string& name);
+	static int getPrecedence(const cat::String& name);
 	int getPrecedence() const { return getPrecedence(name); }
 };
 
@@ -274,14 +275,18 @@ STRUCT_WITH_PTR(BinaryOperatorCall) : public Expression {
 STRUCT_WITH_PTR(TypeExpr) : public Node {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
-			MEMBER_PAIR(*this, name)
+			MEMBER_PAIR(*this, name),
+			MEMBER_PAIR(*this, isReference),
+			MEMBER_PAIR(*this, arguments)
 		);
 	}
-	NON_COPY_FORMATTABLE(TypeExpr, Node)
-	TypeExpr(std::string&& name, const Position& pos)
-		: Node(pos), name(std::move(name)) { };
+	NON_COPY_FORMATTABLE(TypeExpr, Node);
+	TypeExpr(cat::String&& name, bool isReference, std::vector<TypeExprPtr>&& arguments, const Position& pos)
+		: Node(pos), name(std::move(name)), isReference(isReference), arguments(std::move(arguments)) { };
 
-	std::string name;
+	cat::String name;
+	bool isReference;
+	std::vector<TypeExprPtr> arguments;
 };
 
 
@@ -291,11 +296,11 @@ STRUCT_WITH_PTR(Declaration) : public Statement {
 			MEMBER_PAIR(*this, name)
 		);
 	}
-	NON_COPY_FORMATTABLE(Declaration, Statement)
-	Declaration(std::string&& name, const Position& pos)
+	NON_COPY_FORMATTABLE(Declaration, Statement);
+	Declaration(cat::String&& name, const Position& pos)
 		: Statement(pos), name(std::move(name)) { };
 
-	std::string name;
+	cat::String name;
 };
 
 
@@ -306,8 +311,8 @@ STRUCT_WITH_PTR(VarDeclaration) : public Declaration {
 			MEMBER_PAIR(*this, initExpr)
 		);
 	}
-	NON_COPY_FORMATTABLE(VarDeclaration, Declaration)
-	VarDeclaration(std::string&& name, TypeExprPtr&& type, ExpressionPtr&& initExpr, const Position& pos)
+	NON_COPY_FORMATTABLE(VarDeclaration, Declaration);
+	VarDeclaration(cat::String&& name, TypeExprPtr&& type, ExpressionPtr&& initExpr, const Position& pos)
 		: Declaration(std::move(name), pos), type(std::move(type)), initExpr(std::move(initExpr)) { };
 
 	TypeExprPtr type;
@@ -320,8 +325,8 @@ STRUCT_WITH_PTR(ConstDeclaration) : public VarDeclaration {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple();
 	}
-	NON_COPY_FORMATTABLE(ConstDeclaration, VarDeclaration)
-	ConstDeclaration(std::string&& name, TypeExprPtr&& type, ExpressionPtr&& initExpr, const Position& pos)
+	NON_COPY_FORMATTABLE(ConstDeclaration, VarDeclaration);
+	ConstDeclaration(cat::String&& name, TypeExprPtr&& type, ExpressionPtr&& initExpr, const Position& pos)
 		: VarDeclaration(std::move(name), std::move(type), std::move(initExpr), pos) { };
 };
 
@@ -333,7 +338,7 @@ STRUCT_WITH_PTR(Assignment) : public Statement {
 			MEMBER_PAIR(*this, expr)
 		);
 	}
-	NON_COPY_FORMATTABLE(Assignment, Statement)
+	NON_COPY_FORMATTABLE(Assignment, Statement);
 	Assignment(VariableReferencePtr&& variable, ExpressionPtr&& expr, const Position& pos)
 		: Statement(pos), variable(std::move(variable)), expr(std::move(expr)) { };
 
@@ -348,7 +353,7 @@ STRUCT_WITH_PTR(Block) : public Node {
 			MEMBER_PAIR(*this, statements)
 		);
 	}
-	NON_COPY_FORMATTABLE(Block, Node)
+	NON_COPY_FORMATTABLE(Block, Node);
 	std::vector<StatementPtr> statements;
 
 	Block(std::vector<StatementPtr>&& statements, const Position& pos)
@@ -366,7 +371,7 @@ STRUCT_WITH_PTR(IfControl) : public Statement {
 			MEMBER_PAIR(*this, elseBlock)
 		);
 	}
-	NON_COPY_FORMATTABLE(IfControl, Statement)
+	NON_COPY_FORMATTABLE(IfControl, Statement);
 	ExpressionPtr condition;
 	BlockPtr thenBlock;
 	BlockPtr elseBlock;
@@ -386,7 +391,7 @@ STRUCT_WITH_PTR(WhileControl) : public Statement {
 			MEMBER_PAIR(*this, block)
 		);
 	}
-	NON_COPY_FORMATTABLE(WhileControl, Statement)
+	NON_COPY_FORMATTABLE(WhileControl, Statement);
 	WhileControl(ExpressionPtr&& condition, BlockPtr&& block, const Position& pos)
 		: Statement(pos),
 		  condition(std::move(condition)),
@@ -404,7 +409,7 @@ STRUCT_WITH_PTR(ReturnStatement) : public Statement {
 			MEMBER_PAIR(*this, expr)
 		);
 	}
-	NON_COPY_FORMATTABLE(ReturnStatement, Statement)
+	NON_COPY_FORMATTABLE(ReturnStatement, Statement);
 	ReturnStatement(ExpressionPtr&& expr, const Position& pos)
 		: Statement(pos), expr(std::move(expr)) { };
 
@@ -419,11 +424,11 @@ STRUCT_WITH_PTR(ParamDeclaration) : public Node {
 			MEMBER_PAIR(*this, type)
 		);
 	}
-	NON_COPY_FORMATTABLE(ParamDeclaration, Node)
-	ParamDeclaration(std::string&& name, TypeExprPtr&& type, const Position& pos)
+	NON_COPY_FORMATTABLE(ParamDeclaration, Node);
+	ParamDeclaration(cat::String&& name, TypeExprPtr&& type, const Position& pos)
 		: Node(pos), name(std::move(name)), type(std::move(type)) { };
 
-	std::string name;
+	cat::String name;
 	TypeExprPtr type;
 
 };
@@ -437,8 +442,8 @@ STRUCT_WITH_PTR(FuncDeclaration) : public Declaration {
 			MEMBER_PAIR(*this, block)
 		);
 	}
-	NON_COPY_FORMATTABLE(FuncDeclaration, Declaration)
-	FuncDeclaration(std::string&& name, TypeExprPtr&& returnType, std::vector<ParamDeclarationPtr>&& params, BlockPtr&& block, const Position& pos)
+	NON_COPY_FORMATTABLE(FuncDeclaration, Declaration);
+	FuncDeclaration(cat::String&& name, TypeExprPtr&& returnType, std::vector<ParamDeclarationPtr>&& params, BlockPtr&& block, const Position& pos)
 		: Declaration(std::move(name), pos),
 		  returnType(std::move(returnType)),
 		  parameters(std::move(params)),
@@ -453,28 +458,40 @@ STRUCT_WITH_PTR(FuncDeclaration) : public Declaration {
 
 STRUCT_WITH_PTR(TypeDeclaration) : public Declaration {
 	auto _getLocalMembersTuple() const {
-		return cat::makeCRefTuple();
+		return cat::makeCRefTuple(
+			MEMBER_PAIR(*this, name)
+		);
 	}
-	NON_COPY_FORMATTABLE(TypeDeclaration, Declaration)
-	TypeDeclaration(std::string&& name, const Position& pos)
-		: Declaration(std::move(name), pos)
+	NON_COPY_FORMATTABLE(TypeDeclaration, Declaration);
+	TypeDeclaration(cat::String&& name, std::vector<DeclarationPtr>&& members, const Position& pos)
+		: Declaration(std::move(name), pos),
+		  members(std::move(members))
 	{ };
+
+	std::vector<DeclarationPtr> members;
 };
 
 
 STRUCT_WITH_PTR(StructDeclaration) : public TypeDeclaration {
 	auto _getLocalMembersTuple() const {
-		return cat::makeCRefTuple(
-			MEMBER_PAIR(*this, name)
-		);
+		return cat::makeCRefTuple();
 	}
-	NON_COPY_FORMATTABLE(StructDeclaration, TypeDeclaration)
-	StructDeclaration(std::string&& name, std::vector<DeclarationPtr>&& members, const Position& pos)
-		: TypeDeclaration(std::move(name), pos),
-		  members(std::move(members))
+	NON_COPY_FORMATTABLE(StructDeclaration, TypeDeclaration);
+	StructDeclaration(cat::String&& name, std::vector<DeclarationPtr>&& members, const Position& pos)
+		: TypeDeclaration(std::move(name), std::move(members), pos)
+	{ };
+};
+
+
+STRUCT_WITH_PTR(ClassDeclaration) : public TypeDeclaration {
+	auto _getLocalMembersTuple() const {
+		return cat::makeCRefTuple();
+	}
+	NON_COPY_FORMATTABLE(ClassDeclaration, TypeDeclaration);
+	ClassDeclaration(cat::String&& name, std::vector<DeclarationPtr>&& members, const Position& pos)
+		: TypeDeclaration(std::move(name), std::move(members), pos)
 	{ };
 
-	std::vector<DeclarationPtr> members;
 };
 
 
@@ -485,8 +502,8 @@ STRUCT_WITH_PTR(UnitDeclaration) : public Declaration {
 			MEMBER_PAIR(*this, block)
 		);
 	}
-	NON_COPY_FORMATTABLE(UnitDeclaration, Declaration)
-	UnitDeclaration(std::string&& name, UnitNature unitNature, BlockPtr&& block, const Position& pos)
+	NON_COPY_FORMATTABLE(UnitDeclaration, Declaration);
+	UnitDeclaration(cat::String&& name, UnitNature unitNature, BlockPtr&& block, const Position& pos)
 		: Declaration(std::move(name), pos),
 		  unitNature(unitNature),
 		  block(std::move(block))

@@ -1,11 +1,11 @@
 #include "ast.h"
 
-#include "cat_utils.h"
+#include "cat_exception.h"
 
 namespace ngpl {
 
 
-int BinaryOperatorCall::getPrecedence(const std::string& name) {
+int BinaryOperatorCall::getPrecedence(const cat::String& name) {
 	if (false) {
 	} else if (cat::isAnyOf(name, "*", "/", "%")) {
 	return 9;
@@ -28,7 +28,7 @@ int BinaryOperatorCall::getPrecedence(const std::string& name) {
 	} else if (cat::isAnyOf(name, "||", "or")) {
 	return 0;
 	} else {
-	throw cat::SimpleError(cat::SW() << "Unkown precedence for operator '" << name << "'." );
+	throw cat::Exception(cat::SW() << "Unkown precedence for operator '" << name << "'." );
 	}
 }
 

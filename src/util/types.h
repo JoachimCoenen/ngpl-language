@@ -3,9 +3,10 @@
 // TODO: rename this file inorder to avoid confusion.
 
 
-#include "cat_typing.h"
+#include "cat_DynArray.h"
+#include "cat_string.h"
+#include "toStringUtils.h"
 
-#include <string>
 #include <vector>
 
 /*  // forward declarations:
@@ -22,7 +23,15 @@ namespace cat {
 // forward decl:
 class WriterObjectABC;
 
+
+template <class T>
+auto& operator += (WriterObjectABC &s, const cat::DynArray<T> &v) {
+	formatListLike2(s, v.cbegin(), v.cend(), {"[", "]"});
+	return s;
 }
+}
+
+
 
 namespace ngpl {
 

@@ -2,12 +2,12 @@
 
 namespace ngpl {
 
-Unit::Unit()
+Unit::Unit() : _scope(nullptr)
 {
 
 }
 
-Unit::Unit(const std::string& name, ScopePtr&& scope, UnitNature unitNature)
+Unit::Unit(const cat::String& name, ScopeSharedPtr&& scope, UnitNature unitNature)
 	: _name(name),
 	  _scope(std::move(scope)),
 	  _unitNature(unitNature)

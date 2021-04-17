@@ -2,19 +2,30 @@
 #define TYPE_H
 
 #include "util/types.h"
-#include "compiler/intermediate/intermediateCode.h"
+#include "intermediate/intermediateCode.h"
 #include "member.h"
 
 #include "cat_utils.h"
 #include "cat_hash.h"
-
-#include <string>
+#include "cat_string.h"
 
 namespace cat {
 class WriterObjectABC;
 }
 
 namespace ngpl {
+
+
+enum class TypeKind {
+	BASIC, // Int, Floatm ...
+	TUPLE_LIKE, // tuple, stuct, ...
+	CLASS_LIKE,
+	COMPLEX_ENUM,
+};
+
+cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const TypeKind& v);
+
+
 
 PTRS_FOR_CLASS(Scope)
 
@@ -23,86 +34,43 @@ class Type: public IIntermediateCodePrintable, public Member
 {
 public:
 	Type();
-	Type(const std::string& name, const std::string& qualifier, uint64_t fixedSize, bool isBasic, bool isFinished = false);
-	//Type(std::string&& name, uint64_t fixedSize, bool isBasic, bool isFinished = false);
+	Type(const cat::String& name, const cat::String& qualifier, uint64_t fixedSize, TypeKind typeKind, bool isFinished = false);
+	//Type(cat::String&& name, uint64_t fixedSize, bool isBasic, bool isFinished = false);
 
-	ScopePtr& scope() { return _scope; }
-	ScopeCWeakPtr scope() const { return _scope.getRaw(); }
+	ScopeWeakPtr scope() { return _scope.weak(); }
+	ScopeCWeakPtr scope() const { return _scope.weak(); }
+	void setScope(const ScopeSharedPtr& newScope) { _scope = newScope; }
 	const intermediate::IntermediateCodeContainer& body() const { return _body; }
 	intermediate::IntermediateCodeContainer& body() { return _body; }
-	bool isBasic() const { return _isBasic; }
-	uint64_t& fixedSize() { return _fixedSize; }
+	TypeKind typeKind() const { return _typeKind; }
+	bool isBasic() const { return _typeKind == TypeKind::BASIC; }
+	bool isTupleLike() const { return _typeKind == TypeKind::TUPLE_LIKE; }
+	bool isClass() const { return _typeKind == TypeKind::CLASS_LIKE; }
+	//uint64_t& fixedSize() { return _fixedSize; }
 	uint64_t fixedSize() const { return _fixedSize; }
 
 	bool isFinished() const { return _isFinished; }
-	bool finish() { return _isFinished = true; }
+	void finish();
 
 	cat::WriterObjectABC& print(cat::WriterObjectABC& s) const override;
 
 protected:
-	ScopePtr _scope;
+	ScopeSharedPtr _scope;
 	intermediate::IntermediateCodeContainer _body;
 	uint64_t _fixedSize;
-	bool _isBasic;
+	TypeKind _typeKind;
+	bool _isHeapAllocated;
 	bool _isFinished;
 };
-
-inline cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const Type& v);
-
-PTRS_FOR_STRUCT(FunctionSignature)
-struct FunctionSignature
-{
-public:
-	FunctionSignature();
-	FunctionSignature(
-	//std::string&& name,
-	//TypeCWeakPtr&& returnType,
-	std::vector<TypeCWeakPtr>&& argumentTypes
-	);
-
-	//const std::string& name() const { return _name; }
-
-	//const TypeCWeakPtr returnType() const { return _returnType; }
-	const std::vector<TypeCWeakPtr>& argumentTypes() const { return _argumentTypes; }
-	uint_fast16_t argumentCount() const { return _argumentTypes.size(); }
-
-	std::string asCodeString() const;
-	std::string asQualifiedCodeString() const;
-
-
-protected:
-	//std::string _name;
-	//TypeCWeakPtr _returnType;
-	std::vector<TypeCWeakPtr> _argumentTypes;
-};
-
-inline bool operator == (const FunctionSignature& lhs, const FunctionSignature& rhs) {
-	return true
-		//and lhs.name() == rhs.name()
-		//and lhs.returnType() == rhs.returnType()
-		and lhs.argumentTypes() == rhs.argumentTypes();
-}
-
-inline cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const FunctionSignature& v);
 
 }
 
 template <>
 struct std::hash<ngpl::Type> {
 	size_t operator()(const ngpl::Type& v) const noexcept {
-	return cat::hash(v.name());
-	}
-
-};
-
-template <>
-struct std::hash<ngpl::FunctionSignature> {
-	size_t operator()(const ngpl::FunctionSignature& v) const noexcept {
-	size_t result = 99;
-	//result = cat::combineHashes(result, cat::hash(v.name()));
-	//result = cat::combineHashes(result, cat::hash(v.returnType()));
-	result = cat::combineHashes(result, cat::hash(v.argumentTypes()));
-	return result;
+		return cat::combineHashes(
+				cat::hash(v.qualifier()), cat::hash(v.name())
+		);
 	}
 
 };

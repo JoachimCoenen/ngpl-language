@@ -1,15 +1,14 @@
 #ifndef UNIT_H
 #define UNIT_H
 
-#include "compiler/intermediate/intermediateCode.h"
+#include "intermediate/intermediateCode.h"
 #include "scope.h"
 #include "language/unitNature.h"
 //#include "util/types.h"
 
-#include "cat_utils.h"
 #include "cat_hash.h"
-
-#include <string>
+#include "cat_utils.h"
+#include "cat_string.h"
 
 namespace ngpl {
 
@@ -22,11 +21,12 @@ class Unit: public IIntermediateCodePrintable
 {
 public:
 	Unit();
-	Unit(const std::string& name, ScopePtr&& scope, UnitNature unitNature);
+	Unit(const cat::String& name, ScopeSharedPtr&& scope, UnitNature unitNature);
 
-	const std::string& name() const { return _name; }
-	ScopePtr& scope() { return _scope; }
-	ScopeCWeakPtr scope() const { return _scope.getRaw(); }
+	const cat::String& name() const { return _name; }
+	ScopeWeakPtr scope() { return _scope.weak(); }
+	ScopeCWeakPtr scope() const { return _scope.weak(); }
+	void setScope(const ScopeSharedPtr& newScope) { _scope = newScope; }
 	const intermediate::IntermediateCodeContainer& body() const { return _body; }
 	intermediate::IntermediateCodeContainer& body() { return _body; }
 	UnitNature unitNature() const { return _unitNature; }
@@ -38,8 +38,8 @@ public:
 	cat::WriterObjectABC& print(cat::WriterObjectABC& s) const override final;
 
 protected:
-	std::string _name;
-	ScopePtr _scope;
+	cat::String _name;
+	ScopeSharedPtr _scope;
 	intermediate::IntermediateCodeContainer _body;
 	UnitNature _unitNature;
 };

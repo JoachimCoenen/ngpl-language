@@ -1,10 +1,13 @@
 #include "optimizer.h"
+#include "CSSATree/cssatree.h"
 
 #include "language/unit.h"
 //#include "intermediate/intermediateCode.h"
 #include "vm/value.h"
 
 #include "ranges.h"
+#include "cat_enumMap.h"
+#include "cat_flagSet.h"
 
 #include <iostream>
 #include <optional>
@@ -15,304 +18,480 @@
 
 namespace {
 namespace itm = ngpl::intermediate;
+
+using InstrID             = ngpl::InstructionID;
+using Instrs              = ngpl::intermediate::Instructions;
+using SimpleInstr         = ngpl::intermediate::IntermediateSimpleInstruction;
+using SimpleInstrPtr      = ngpl::intermediate::IntermediateSimpleInstructionPtr;
+using SimpleInstrWeakPtr  = ngpl::intermediate::IntermediateSimpleInstructionWeakPtr;
+using SimpleInstrCWeakPtr = ngpl::intermediate::IntermediateSimpleInstructionCWeakPtr;
+using namespace ngpl::CSSA;
+
 }
 
 namespace ngpl {
 // ADD_PTR_TYPES
 
-PTRS_FOR_STRUCT(ValueStore);
-PTRS_FOR_STRUCT(TaggedInstruction);
-PTRS_FOR_STRUCT(TaggedValue);
-
-struct TaggedValue {
-	int64_t id;
-	std::optional<Value> constValue;
-
-	TaggedInstructionWeakPtr generatedBy;
-	int64_t lamportTimestamp;
-	int32_t usageCount = 0;
-	bool isAtFinalLocation = false;
-	bool isVirtual = false;
-	//cat::OwningPtr<std::unordered_map<TaggedValueWeakPtr, int32_t>> recursiveArguments = nullptr;
-protected:
-	friend struct ValueStore;
-	TaggedValue(
-			int64_t id,
-			std::optional<Value>&& constValue,
-			TaggedInstructionWeakPtr generatedBy,
-			int64_t lamportTimestamp,
-			int16_t usageCount = 0,
-			bool isAtFinalLocation = false,
-			bool isVirtual = false
-	)
-		: id(id),
-		  constValue(std::move(constValue)),
-		  generatedBy(generatedBy),
-		  lamportTimestamp(lamportTimestamp),
-		  usageCount(usageCount),
-		  isAtFinalLocation(isAtFinalLocation),
-		  isVirtual(isVirtual)
-	{}
-/*
-	TaggedValue(
-			int64_t id,
-			std::optional<Value>&& constValue,
-			TaggedInstructionPtr&& generatedBy,
-			int64_t lamportTimestamp,
-			int16_t usageCount = 0,
-			bool isAtFinalLocation = false
-	)
-		: id(id),
-		  constValue(std::move(constValue)),
-		  generatedBy(std::move(generatedBy)),
-		  lamportTimestamp(lamportTimestamp),
-		  usageCount(usageCount),
-		  isAtFinalLocation(isAtFinalLocation)
-	{}
-*/
-};
-cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const TaggedValue& v) {
-	s += "TaggedValue";
-	auto tuple = std::make_tuple(
-	MEMBER_PAIR(v, id),
-	MEMBER_PAIR(v, generatedBy),
-	MEMBER_PAIR(v, lamportTimestamp),
-	MEMBER_PAIR(v, usageCount),
-	MEMBER_PAIR(v, isAtFinalLocation),
-	MEMBER_PAIR(v, isVirtual)
-	);
-	formatTupleLike2(s, tuple, {"(", ")"}, cat::_formatFuncKwArg, true);
-	return s;
-}
-
-struct OperandUsege { // TODO: find beter name for struct OperandUsege
-	TaggedValueWeakPtr val;
-	bool usedByMultipleOperands;
-	int32_t usageCount;
+enum class BreakOut {
+	NONE = 0,
+	RETURN,
+	CONTINUE,
+	BREAK,
+	__
 };
 
-struct InstructionUsege { // TODO: find beter name for struct OperandUsege
-	TaggedInstructionWeakPtr instr;
-	bool usedByMultipleOperands;
-	int32_t usageCount;
+using BreakOutSet = cat::FlagSet<BreakOut>;
+
+using SLCSet = std::unordered_set<
+	StackLayoutScenario,
+	StackLayoutScenarioHash,
+	StackLayoutScenarioEqualTo
+>;
+
+struct BreakOutInfo {
+	cat::EnumMap<BreakOut, SLCSet> layouts;
 };
 
-struct RequirementStats {
-	// this could be an unordered_set, but we need the order here...:
-	std::vector<OperandUsege> values;
-	// this could be an unordered_set, but we need the order here...:
-	std::vector<InstructionUsege> instructions;
 
-};
+//void phiSLC(SLCSet& slcs) {
+//	if (slcs.size() == 0) {
+//		return;
+//	}
+//	const auto slSize = slcs.cbegin()->getStack().size();
+//	NGPL_ASSERT(cat::range(slcs).all_c(LAMBDA2(slSize, v) { return v.getStack().size() == slSize; }));
 
-struct TaggedInstruction {
-	int64_t id;
-	itm::IntermediateSimpleInstruction instr;
-	std::vector<TaggedValueWeakPtr> operands;
-	std::vector<TaggedValueWeakPtr> generatesValues;
-	TaggedValueWeakPtr causesSideEffect = nullptr;
-	int64_t lamportTimestamp;
-	// this could be an opional, but Qt's debugger doesn't like them :'(
-	cat::OwningPtr<RequirementStats> recursiveRequirements = nullptr;
-	//TaggedValueWeakPtr result = nullptr;
+//	std::vector<TaggedValueWeakPtr> thenBranch;
+//	std::vector<TaggedValueWeakPtr> elseBranch;
 
-protected:
-	friend struct ValueStore;
+//	for (size_t i = 0; i < slSize; ++i) {
 
-	TaggedInstruction(int64_t id, const itm::IntermediateSimpleInstruction& instr, std::vector<TaggedValueWeakPtr>&& arguments)
-		: id(id),
-		  instr(instr),
-		  operands(std::move(arguments))
-	{
-		lamportTimestamp = 0;
-		foreach_n(arg, this->operands) {
-			lamportTimestamp = std::max(arg->lamportTimestamp, lamportTimestamp);
-			arg->usageCount += 1;
-		}
-		lamportTimestamp += 1;
-	}
-};
+//		auto thenVal = thenStackLayout.getStack().at(i);
+//		auto elseVal = elseStackLayout.getStack().at(i);
+//		if (thenVal->id != elseVal->id) {
 
-cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const TaggedInstruction& v) {
-	s += "TaggedInstruction";
-	auto tuple = std::make_tuple(
-	MEMBER_PAIR(v, id),
-	MEMBER_PAIR(v, instr),
-	MEMBER_PAIR(v, operands),
-	//MEMBER_PAIR(v, generatesValues),
-	//MEMBER_PAIR(v, causesSideEffect),
-	MEMBER_PAIR(v, lamportTimestamp)
-	//MEMBER_PAIR(v, recursivelyRequiredValues)
-	);
-	formatTupleLike2(s, tuple, {"(", ")"}, cat::_formatFuncKwArg, true);
-	return s;
-}
+//			stackLayout.pushValue(std::nullopt, ifInstruct);
+//			auto newVal = stackLayout.peekValue();
+//			stackLayout.writeValue(stackLayout.getRelativeAddress(i));
 
-struct ValueStore {
-protected:
-	int64_t _nextValueId = 1;
-	int64_t _nextInstrId = -1;
-	std::vector<TaggedValuePtr> _allValues{};
-	//std::vector<TaggedCellPtr> _allCells{};
-	std::vector<TaggedInstructionPtr> _allInstructions{};
+//			thenBranch.push_back(thenVal);
+//			elseBranch.push_back(elseVal);
 
-public:
-	TaggedValueWeakPtr getNewValue(std::optional<Value>&& constValue, TaggedInstructionWeakPtr generatedBy, bool isVirtual = false) {
-		auto lamportTimestamp = generatedBy ? generatedBy->lamportTimestamp : 0;
-		auto* taggedValuePtr = new TaggedValue{_nextValueId++, std::move(constValue), generatedBy, lamportTimestamp, 0, false, isVirtual};
-//		if (taggedValuePtr->generatedBy) {
-//			taggedValuePtr->generatedBy->result = taggedValuePtr;
 //		}
-		auto result = _allValues.emplace_back(taggedValuePtr).getRaw();
+//	}
 
-		if (not result->isVirtual and result->generatedBy != nullptr) {
-			generatedBy->generatesValues.push_back(result);
-		}
+//	ifInstruct->addBranch(std::move(thenBranch));
+//	ifInstruct->addBranch(std::move(elseBranch));
 
-		return result;
-	}
-/*
-	TaggedCellWeakPtr getNewCell(TaggedValueWeakPtr value = nullptr) {
-		if (value != nullptr) {
-			value = getNewValue();
-		}
-		auto* taggedCellPtr = new TaggedCell{_nextCellId--, value};
-		return _allCells.emplace_back(taggedCellPtr).getRaw();;
-	}
-*/
-	TaggedInstructionWeakPtr getNewInstruction(const itm::IntermediateSimpleInstruction& instr, std::vector<TaggedValueWeakPtr>&& arguments) {
-		TaggedInstructionPtr taggedInstr = new TaggedInstruction(_nextInstrId++, instr, std::move(arguments));
-		TaggedInstructionWeakPtr result = taggedInstr.getRaw();
-		_allInstructions.push_back(std::move(taggedInstr));
-		return result;
-	}
 
-};
+//}
 
-struct StackLayoutScenario {
+
+class Analyzer {
+
+
+	bool _printStacklayout = true;
+	cat::WriterObjectABCPtr s;
+
 public:
-	StackLayoutScenario(ValueStoreWeakPtr&& valueStore)
-		: _valueStore(valueStore)
+	Analyzer(cat::WriterObjectABCPtr&& s, bool printStacklayout = true)
+		: _printStacklayout(printStacklayout),
+		  s(std::move(s))
 	{}
-protected:
-	ValueStoreWeakPtr _valueStore;
-	cat::Stack<TaggedValueWeakPtr> _stack{};
-	std::vector<TaggedValueWeakPtr> _instructionsWithSideEffect;
-	uint32_t _stackCompressionBarrier = 0; // the _stack must NOT be compressed below this address!
-	bool _isValid = true;
-public:
-	void invalidate(){ _isValid = false; }
-	bool isValid() const { return _isValid; }
 
-	/**
-	 * @brief The stack must NOT be compressed below this (absolute) address!
-	 * @return
-	 */
-	uint32_t stackCompressionBarrier() const { return _stackCompressionBarrier; }
-	void setStackCompressionBarrier(uint32_t v) { _stackCompressionBarrier = v;	}
-
-	void pushValue(std::optional<Value>&& constValue, TaggedInstructionWeakPtr generatedBy) {
-		_stack.push(_valueStore->getNewValue(std::move(constValue), generatedBy));
+	void analyzeFunc(FunctionWeakPtr func, StackLayoutScenario& stackLayout) {
+		*s += cat::nlIndent;
+		*s += "func ";
+		*s += func->asCodeString();
+		s->incIndent();
+		analyzeCodeContainer(&func->body(), stackLayout);
 	}
 
-	void pushExistingValue(TaggedValueWeakPtr value) {
-		_stack.push(value);
+	BreakOutInfo analyzeCodeContainer(itm::IntermediateCodeContainerWeakPtr container, StackLayoutScenario& stackLayout) {
+		for (size_t i = 0; i < container->instructions.size(); ++i) {
+			auto& code = container->instructions[i];
+			if (auto instr = code.as<SimpleInstr>()) {
+				analyzeInstruction(instr, stackLayout);
+			} else if (auto ifInstr = code.as<itm::IntermediateIf>()) {
+				analyzeIf(ifInstr, stackLayout);
+			} else if (auto loopInstr = code.as<itm::IntermediateLoop>()) {
+				analyzeLoop(loopInstr, stackLayout);
+			} else if (auto specialInstr = code.as<itm::IntermediateSpecial>()) {
+				analyzeSpecial(specialInstr);
+				container->instructions.resize(i+1);
+				break;
+			} else {
+				throw cat::Exception("unhndeled IntermediateInstruction sub type.");
+			}
+		}
+		return BreakOutInfo();
 	}
 
-	TaggedValueWeakPtr popValue() {
-		return _stack.pop();
-	}
+	void analyzeInstruction(SimpleInstrWeakPtr instr, StackLayoutScenario& stackLayout) {
+		// this method records the effects that a single instruction has. This is later used to build somethng
+		// simiar to a Static single assignment form (https://en.wikipedia.org/wiki/Static_single_assignment_form).
+		if (true and stackLayout.isValid()) {
+			switch (instr->id()) {
+			case InstrID::NOP: {
+			} break;
+			case InstrID::DUP: {
+				stackLayout.readValue(0);
+			} break;
+			case InstrID::SWP: {
+				stackLayout.swap();
+			} break;
 
-	TaggedValueWeakPtr peekValue() {
-		return _stack.peek();
-	}
+			case InstrID::CALL: {
+				auto* func = static_cast<const BuiltinFunction*>(instr->data().getValue<const void*>());
+				Address selfTypeSize = func->selfType() ? func->selfType()->fixedSize() : 0;
+				std::vector<TaggedValueWeakPtr> arguments = cat::IntRange(0ll, selfTypeSize + func->argumentsStackSize())
+						.map_c(LAMBDA2(&stackLayout, ) { return stackLayout.popValue(); })
+						.toVector();
+				arguments = cat::reversed(arguments).toVector();
 
-	void readValue(Address addr) {
-		const auto absoultueAddress = getAbsoluteAddress(addr);
-		_stack.push(_stack.at(absoultueAddress));
-	}
+				TaggedInstructionWeakPtr taggedInstr;
+				if (func->hasSideEffect()) {
+					taggedInstr = stackLayout.addSimpleInstrWithSideEffect(new SimpleInstr(*instr), std::move(arguments));
+				} else {
+					taggedInstr = stackLayout.addSimpleInstr(new SimpleInstr(*instr), std::move(arguments));
+				}
 
-	void writeValue(Address addr) {
-		const auto absoultueAddress = getAbsoluteAddress(addr);
-		_stack.at(absoultueAddress) = _stack.pop();
-	}
+				for (auto i = func->returnType().fixedSize() + selfTypeSize; i --> 0;) {
+					stackLayout.pushValue(std::nullopt, taggedInstr);
+				}
+			} break;
+			case InstrID::CALL2: {
+				// TODO: resolve actual changes to stack!
+				stackLayout.invalidate();
+		//		auto* func = static_cast<const BuiltinFunction*>(instr->data().getValue<const void*>());
+		//		for (auto i = func->argumentsStackSize(); i-->0;) {
+		//			stackLayout.popValue();
+		//		}
+		//		for (auto i = func->returnType()->fixedSize(); i-->0;) {
+		//			stackLayout.pushValue();
+		//		}
+			} break;
 
-	void setValue(Address addr, TaggedValueWeakPtr value) {
-		const auto absoultueAddress = getAbsoluteAddress(addr);
-		_stack.at(absoultueAddress) = value;
-	}
+			case InstrID::READ_STCK_F: {
+				stackLayout.readValue(instr->data().getValue<int64_t>());
+			} break;
+			case InstrID::READ_STCK_D: {
+		//		Address addr = Address(_temporaryStack.size()) - data.getValue<int64_t>() - 1;
+		//		addr -= _temporaryStack.pop().getValue<int64_t>();
+				// TODO: resolve actual changes to stack!
+				auto instruct = SimpleInstrPtr({}, instr->id(), stackLayout.getAbsoluteAddress(instr->data().getValue<Address>()), instr->pos());
+				auto arg = stackLayout.popValue();
 
-	TaggedValueWeakPtr getValue(Address addr) {
-		const auto absoultueAddress = getAbsoluteAddress(addr);
-		return _stack.at(absoultueAddress);
-	}
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstrWithSideEffect(std::move(instruct), {arg}));
+				//stackLayout.invalidate();
+	//			stackLayout.popValue();
+	//			stackLayout.pushValue();
+			} break;
 
-	void swap() {
-		const auto top = _stack.size() - 1;
-		std::swap(_stack.at(top), _stack.at(top-1));
-	}
+			case InstrID::WRITE_STCK_F: {
+				stackLayout.writeValue(instr->data().getValue<int64_t>());
+			} break;
+			case InstrID::WRITE_STCK_D: {
+		//		Address addr = Address(_temporaryStack.size()) - data.getValue<int64_t>() - 1;
+		//		addr -= _temporaryStack.pop().getValue<int64_t>();
+				// TODO: resolve actual changes to stack!
+				auto instruct = SimpleInstrPtr({}, instr->id(), stackLayout.getAbsoluteAddress(instr->data().getValue<Address>()), instr->pos());
+				auto arg1 = stackLayout.popValue();
+				stackLayout.addSimpleInstrWithSideEffect(std::move(instruct), {arg1});
+				//stackLayout.invalidate();
+	//			stackLayout.popValue();
+	//			stackLayout.retagStackValues();
+			} break;
+
+			case InstrID::READ_FA: {
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstrWithSideEffect(new SimpleInstr(*instr), {}));
+			} break;
+		/*	case InstrID::READ_DA: {
+				auto addr = _temporaryStack.pop().getValue<int64_t>();
+				_temporaryStack.push(_variables.at(addr));
+				++_programmCounter;
+			} break; */
+			case InstrID::READ_FR: {
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstrWithSideEffect(new SimpleInstr(*instr), {arg1}));
+			} break;
+			case InstrID::READ_DR: {
+				auto arg2 = stackLayout.popValue();
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstrWithSideEffect(new SimpleInstr(*instr), {arg1, arg2}));
+			} break;
+
+			case InstrID::WRITE_FA: {
+				auto arg1 = stackLayout.popValue();
+				stackLayout.addSimpleInstrWithSideEffect(new SimpleInstr(*instr), {arg1});
+			} break;
+		//	case InstrID::WRITE_DA: {
+		//		auto addr = _temporaryStack.pop().getValue<int64_t>();
+		//		_variables.at(addr) = _temporaryStack.pop();
+		//		++_programmCounter;
+		//	} break;
+			case InstrID::WRITE_FR: {
+				auto arg2 = stackLayout.popValue();
+				auto arg1 = stackLayout.popValue();
+				stackLayout.addSimpleInstrWithSideEffect(new SimpleInstr(*instr), {arg1, arg2});
+			} break;
+			case InstrID::WRITE_DR: {
+				auto arg3 = stackLayout.popValue();
+				auto arg2 = stackLayout.popValue();
+				auto arg1 = stackLayout.popValue();
+				stackLayout.addSimpleInstrWithSideEffect(new SimpleInstr(*instr), {arg1, arg2, arg3});
+			} break;
+
+			case InstrID::POP_VAL: {
+				stackLayout.popValue();
+			} break;
+			case InstrID::PUSH_INT: {
+				stackLayout.pushValue(instr->data().getValue<int64_t>(), stackLayout.addSimpleInstr(new SimpleInstr(*instr), {}));
+			} break;
+			case InstrID::PUSH_STR: {
+				stackLayout.pushValue(instr->data().getValue<cat::String>(), stackLayout.addSimpleInstr(new SimpleInstr(*instr), {}));
+			} break;
 
 
-	void retagStackValues() {
-		invalidate();
-		const auto stackSize = _stack.size();
-		//_stack.clear();
-		for (auto i = stackSize; i-->0;) {
-			_stack.at(i) = _valueStore->getNewValue(std::nullopt, nullptr);
+			case InstrID::POP_CNTR: {
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstr(new SimpleInstr(*instr), {}));
+			} break;
+			case InstrID::PUSH_CNTR_FR: {
+				NGPL_ASSERT(false);
+				stackLayout.invalidate();
+			} break;
+
+
+			case InstrID::ADD_SI: {
+				auto arg2 = stackLayout.popValue();
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstr(new SimpleInstr(*instr), {arg1, arg2}));
+			} break;
+			case InstrID::SUB_SI: {
+				auto arg2 = stackLayout.popValue();
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstr(new SimpleInstr(*instr), {arg1, arg2}));
+			} break;
+			case InstrID::MUL_SI: {
+				auto arg2 = stackLayout.popValue();
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstr(new SimpleInstr(*instr), {arg1, arg2}));
+			} break;
+			case InstrID::DIV_SI: {
+				auto arg2 = stackLayout.popValue();
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstr(new SimpleInstr(*instr), {arg1, arg2}));
+			} break;
+			case InstrID::REM_SI: {
+				auto arg2 = stackLayout.popValue();
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstr(new SimpleInstr(*instr), {arg1, arg2}));
+			} break;
+			case InstrID::NEG_SI: {
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstr(new SimpleInstr(*instr), {arg1}));
+			} break;
+			case InstrID::SHR_SI: {
+				auto arg2 = stackLayout.popValue();
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstr(new SimpleInstr(*instr), {arg1, arg2}));
+			} break;
+			case InstrID::SHL: {
+				auto arg2 = stackLayout.popValue();
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstr(new SimpleInstr(*instr), {arg1, arg2}));
+			} break;
+			case InstrID::AND: {
+				auto arg2 = stackLayout.popValue();
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstr(new SimpleInstr(*instr), {arg1, arg2}));
+			} break;
+			case InstrID::OR: {
+				auto arg2 = stackLayout.popValue();
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstr(new SimpleInstr(*instr), {arg1, arg2}));
+			} break;
+			case InstrID::XOR: {
+				auto arg2 = stackLayout.popValue();
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstr(new SimpleInstr(*instr), {arg1, arg2}));
+			} break;
+			case InstrID::NOT: {
+				auto arg1 = stackLayout.popValue();
+				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstr(new SimpleInstr(*instr), {arg1}));
+			} break;
+
+
+
+		//	case InstrID::IF_Z: {
+		//		if (_temporaryStack.pop().getValue<int64_t>()) {
+		//			_programmCounter += 2;
+		//		} else {
+		//			++_programmCounter;
+		//		}
+		//	} break;
+		//	case InstrID::IF_NZ: {
+		//		if (_temporaryStack.pop().getValue<int64_t>()) {
+		//			++_programmCounter;
+		//		} else {
+		//			_programmCounter += 2;
+		//		}
+		//	} break;
+
+
+		//	case InstrID::JMP_FR: {
+		//		_programmCounter += data.getValue<int64_t>();
+		//	} break;
+
+
+		//	case InstrID::JMP_FA: {
+		//		_programmCounter = data.getValue<int64_t>();
+		//	} break;
+		//	case InstrID::JMP_DA: {
+		//		_funcCallCounter++;
+		//		_programmCounter = _temporaryStack.pop().getValue<int64_t>();
+		//	} break;
+
+			default:
+				throw cat::Exception(cat::SW() << "unknown Instruction ID. " << *instr);
+			}
+		}
+
+		if (_printStacklayout) {
+			*s += cat::nlIndent;
+			//s << std::setfill(' ') << std::setw(3);
+
+			auto indentSize = 2 * s->getIndent();
+			auto idStr = cat::String(cat::SW() << instr->id());
+
+			*s << idStr;
+			*s << cat::String(std::max(1ll, 30 - int64_t(idStr.length() + indentSize)), ' ');
+			printStackLayout(s, stackLayout);
 		}
 	}
 
-	TaggedInstructionWeakPtr addInstruction(const itm::IntermediateSimpleInstruction& instr, std::vector<TaggedValueWeakPtr>&& arguments) {
-		return _valueStore->getNewInstruction(instr, std::move(arguments));
-	}
+	void printStackLayout(cat::WriterObjectABCPtr& s, const StackLayoutScenario& stackLayout) {
+			*s << " |";
 
-	TaggedInstructionWeakPtr addInstructionWithSideEffect(const itm::IntermediateSimpleInstruction& instr, std::vector<TaggedValueWeakPtr>&& arguments) {
-		if (not _instructionsWithSideEffect.empty()) {
-			arguments.push_back(_instructionsWithSideEffect.back());
+			if (not stackLayout.isValid()) {
+				*s << " invalid |";
+			}
+
+			foreach_c(value, stackLayout.getStack()) {
+				if (value->isAtFinalLocation) {
+					*s << "-" << cat::intToStr(value->id , 3, ' ') << "-|";
+				} else  {
+					*s << " " << cat::intToStr(value->id , 3, ' ') << " |";
+				}
+			}
 		}
-		auto taggedInstr = _valueStore->getNewInstruction(instr, std::move(arguments));
-		taggedInstr->causesSideEffect =_valueStore->getNewValue(std::nullopt, taggedInstr, true);
-		_instructionsWithSideEffect.push_back(taggedInstr->causesSideEffect);
-		return taggedInstr;
+
+	BreakOutInfo analyzeIf(itm::IntermediateIfWeakPtr ifInstr, StackLayoutScenario& stackLayout) {
+		auto condition = stackLayout.popValue();
+		auto ifInstruct = stackLayout.addIfInstr(new SimpleInstr(Instrs::Nop(ifInstr->pos())), {condition});
+
+		if (_printStacklayout) {
+			*s += cat::nlIndent;
+			*s += ifInstr->isInverted ? "if not:" : "if:";
+			s->incIndent();
+		}
+
+		auto thenStackLayout = stackLayout.newScenarioFromThis();
+		auto thenBOI = analyzeCodeContainer(&ifInstr->ifCode, thenStackLayout);
+
+		if (_printStacklayout) {
+			s->decIndent();
+			if (not ifInstr->elseCode.instructions.empty()) {
+				*s += cat::nlIndent;
+				*s += "else:";
+			}
+			s->incIndent();
+		}
+
+		auto elseStackLayout = stackLayout.newScenarioFromThis();
+		auto elseBOI = analyzeCodeContainer(&ifInstr->elseCode, elseStackLayout);
+
+		if (_printStacklayout) {
+			s->decIndent();
+		}
+
+		if (not thenStackLayout.isValid() or not elseStackLayout.isValid()){
+			stackLayout.invalidate();
+			return BreakOutInfo();
+		}
+
+		// thenStackLayout and elseStackLayout should have the same size:
+		NGPL_ASSERT(thenStackLayout.getStack().size() == elseStackLayout.getStack().size());
+		stackLayout = thenStackLayout.newScenarioFromThis();
+
+		std::vector<TaggedValueWeakPtr> thenBranch;
+		std::vector<TaggedValueWeakPtr> elseBranch;
+
+		for (size_t i = 0; i < thenStackLayout.getStack().size(); ++i) {
+			auto thenVal = thenStackLayout.getStack().at(i);
+			auto elseVal = elseStackLayout.getStack().at(i);
+			if (thenVal->id != elseVal->id) {
+
+				stackLayout.pushValue(std::nullopt, ifInstruct);
+				auto newVal = stackLayout.peekValue();
+				stackLayout.writeValue(stackLayout.getRelativeAddress(i));
+
+				thenBranch.push_back(thenVal);
+				elseBranch.push_back(elseVal);
+
+			}
+		}
+
+		ifInstruct->addBranch(std::move(thenBranch));
+		ifInstruct->addBranch(std::move(elseBranch));
+
+
+		// thenStackLayout and elseStackLayout should be the same
+		if (not thenStackLayout.isValid()){
+			stackLayout = std::move(thenStackLayout);
+		} else if (not elseStackLayout.isValid()){
+			stackLayout = std::move(elseStackLayout);
+		} else {
+			// TODO: merge both stackLayouts...!
+			stackLayout = std::move(elseStackLayout);
+			stackLayout.invalidate();
+		}
+		return BreakOutInfo();
 	}
 
-	void addExistingSideEffect(TaggedValueWeakPtr value) {
-		//NGPL_ASSERT(value->generatedBy->);
-		_instructionsWithSideEffect.push_back(value);
+	BreakOutInfo analyzeLoop(itm::IntermediateLoopWeakPtr loopInstr, StackLayoutScenario& stackLayout) {
+		if (_printStacklayout) {
+			*s += cat::nlIndent;
+			*s += "loop:";
+			s->incIndent();
+		}
+		auto bos = analyzeCodeContainer(&loopInstr->code, stackLayout);
+		if (1) {}
+
+		if (_printStacklayout) {
+			s->decIndent();
+		}
+		return bos;
 	}
 
-	bool sideEffectHasHappened(TaggedValueCWeakPtr value) const {
-		NGPL_ASSERT(value->isVirtual);
-		return not getAllInstructionsWithSideEffect().empty() and getAllInstructionsWithSideEffect().back()->id == value->id;
+	BreakOutSet analyzeSpecial(itm::IntermediateSpecialWeakPtr specialInstr) {
+		if (_printStacklayout) {
+			specialInstr->print(*s);
+		}
+		switch (specialInstr->id) {
+		case itm::IntermediateSpecialId::RETURN:
+			return BreakOutSet(BreakOut::RETURN);
+		case itm::IntermediateSpecialId::CONTINUE:
+			return BreakOutSet(BreakOut::CONTINUE);
+		case itm::IntermediateSpecialId::BREAK:
+			return BreakOutSet(BreakOut::BREAK);
+		}
+		return BreakOutSet();
 	}
-
-	const cat::Stack<TaggedValueWeakPtr>& getStack() const { return _stack; }
-	const std::vector<TaggedValueWeakPtr>& getAllInstructionsWithSideEffect() const { return _instructionsWithSideEffect; }
-
-	Address getAbsoluteAddress(Address addr) {
-		return  Address(_stack.size()) - addr - 1;
-	}
-	Address getRelativeAddress(Address addr) {
-		return  Address(_stack.size()) - addr - 1;
-	}
-
-
 };
 
-struct IntermediateCode {
-	std::vector<intermediate::IntermediateInstructionPtr> vector;
-
-	void push_back(intermediate::IntermediateInstructionPtr&& instr) {
-		vector.push_back(std::move(instr));
-	}
-
-};
-
+/*
 class OptimizerInternal
 {
-	using Instrs = intermediate::Instructions;
-	using InterInstr = intermediate::IntermediateSimpleInstruction;
-	using InstrID = InstructionID;
 
 public:
 	OptimizerInternal(const UnitWeakPtr& unit)
@@ -320,10 +499,10 @@ public:
 	{}
 
 	void optimize() {
-		optimizeScope(_unit->scope().getRaw());
+		optimizeScope(_unit->scope());
 		ValueStore valueStore;
 		StackLayoutScenario stackLayout(&valueStore);
-		optimizeCodeContainer(&_unit->body(), stackLayout);
+		Analyzer(new cat::OW(std::cout)).analyzeCodeContainer(&_unit->body(), stackLayout);
 	}
 
 	void optimizeScope(ScopeWeakPtr scope) {
@@ -331,7 +510,7 @@ public:
 		// (they are stored as a Dict[funcName, Dict[signature, function]])
 		foreach_v(func, cat::range(scope->getFunctions())
 				  .flatmap(LAMBDA_n(funcsPair) { return cat::range(funcsPair.second); })
-				  .map(LAMBDA_n(funcPair) { return funcPair.second.getRaw(); })
+				  .map(LAMBDA_n(funcPair) { return funcPair.second.weak(); })
 		) {
 			//_functionEntryPoints[func->asQualifiedCodeString()] = _instructions.size();
 			optimizeFunc(func);
@@ -339,7 +518,7 @@ public:
 
 		// optimize each type:
 		foreach_v(type, cat::range(scope->getTypes())
-				  .map_c(LAMBDA_n(typePair) { return typePair.second.getRaw(); })
+				  .map_c(LAMBDA_n(typePair) { return typePair.second.weak(); })
 		) {
 			//_functionEntryPoints[type->asQualifiedCodeString()] = _instructions.size();
 			optimizeType(type);
@@ -347,32 +526,14 @@ public:
 
 	}
 
-	void optimizeCodeContainer(intermediate::IntermediateCodeContainerWeakPtr container, StackLayoutScenario& stackLayout) {
-		for (size_t i = 0; i < container->instructions.size(); ++i) {
-			auto& code = container->instructions[i];
-			if (auto instr = code.as<itm::IntermediateSimpleInstruction>()) {
-				optimizeInstruction(instr, stackLayout);
-			} else if (auto ifInstr = code.as<itm::IntermediateIf>()) {
-				optimizeIf(ifInstr, stackLayout);
-			} else if (auto loopInstr = code.as<itm::IntermediateLoop>()) {
-				optimizeLoop(loopInstr, stackLayout);
-			} else if (auto specialInstr = code.as<itm::IntermediateSpecial>()) {
-				optimizeSpecial(specialInstr);
-				container->instructions.resize(i+1);
-				break;
-			} else {
-				throw cat::Exception("unhndeled IntermediateInstruction sub type.");
-			}
-		}
-	}
 
 	// ================================================================================================================
 
 	void optimizeType(TypeWeakPtr type) {
-		optimizeScope(type->scope().getRaw());
+		optimizeScope(type->scope());
 		ValueStore valueStore;
 		StackLayoutScenario stackLayout(&valueStore);
-		optimizeCodeContainer(&type->body(), stackLayout);
+		Analyzer(new cat::OW(std::cout)).analyzeCodeContainer(&type->body(), stackLayout);
 	}
 
 
@@ -392,336 +553,71 @@ public:
 
 	void optimizeFunc(FunctionWeakPtr func) {
 		ValueStore valueStore;
-		StackLayoutScenario stackLayout = _getStackLayoutForFunction(func, valueStore);
-		StackLayoutScenario initialStackLayout(stackLayout);
-
-		optimizeCodeContainer(&func->body(), stackLayout);
-		cat::OW out(std::cout);
-		out += cat::nl;
-		out += " =============== =============== =============== ===============";
-		out += cat::nl;
-		out += cat::IntRange(0ull, stackLayout.getStack().size()).map(LAMBDA2(&stackLayout, i) { return *stackLayout.getStack()[i]; }).toVector();
-		out += cat::nl;
-		out += " =============== =============== =============== ===============";
-		out += cat::nl;
+		StackLayoutScenario initialStackLayout = _getStackLayoutForFunction(func, valueStore);
+		StackLayoutScenario stackLayout1 = initialStackLayout.newScenarioFromThis();
 
 		func->recalculteSideEffects();
+		std::cout << "\n ================================================================\n";
+		Analyzer(new cat::OW(std::cout)).analyzeFunc(func, stackLayout1);
 
-		if (stackLayout.isValid()) {
-			auto args = cat::IntRange(0ull, stackLayout.getStack().size()).map_c(LAMBDA2(&stackLayout, i){ return stackLayout.getStack()[i]; }).toVector();
+
+		if (stackLayout1.isValid()) {
+			auto returnArgs = cat::IntRange(0ull, stackLayout1.getStack().size()).map_c(LAMBDA2(&stackLayout1, i){ return stackLayout1.getStack()[i]; }).toVector();
 //			if (not stackLayout.getAllInstructionsWithSideEffect().empty()) {
 //				args.push_back(stackLayout.getAllInstructionsWithSideEffect().back());
 //			}
 
-			auto returnCount = args.size();
+			auto returnCount = returnArgs.size();
 			IntermediateCode intermediateCode;
-			TaggedInstructionWeakPtr instr = stackLayout.addInstructionWithSideEffect(Instrs::Nop(func->body().instructions[0]->pos()), std::move(args));
+			TaggedInstructionWeakPtr instr = stackLayout1.addSimpleInstrWithSideEffect(
+				new SimpleInstr(Instrs::Nop(func->body().instructions[0]->pos())), std::move(returnArgs)
+			);
 
 			if (generateInstructionSequenceFromReturn(instr, returnCount, initialStackLayout, intermediateCode)) {
 				func->body().instructions = std::move(intermediateCode.vector);
 			}
+
+			std::cout << "\n ----------------\n";
+			ValueStore valueStore2;
+			StackLayoutScenario stackLayout2 = _getStackLayoutForFunction(func, valueStore2);
+			Analyzer(new cat::OW(std::cout)).analyzeFunc(func, stackLayout2);
+			std::cout << "\n ================================================================\n";
+
 		}
 	}
 
 	// ================================================================================================================
 
-	void optimizeInstruction(itm::IntermediateSimpleInstructionWeakPtr instr, StackLayoutScenario& stackLayout) {
-		// this method records the effects that a single instruction has. This is later used to build somethng
-		// simiar to a Static single assignment form (https://en.wikipedia.org/wiki/Static_single_assignment_form).
-		if (not stackLayout.isValid()) {
-			return;
-		}
-
-		switch (instr->id()) {
-		case InstrID::NOP: {
-		} break;
-		case InstrID::DUP: {
-			stackLayout.readValue(0);
-		} break;
-		case InstrID::SWP: {
-			auto v0 = stackLayout.getValue(0);
-			auto v1 = stackLayout.getValue(1);
-			stackLayout.setValue(0, v1);
-			stackLayout.setValue(1, v0);
-		} break;
-
-		case InstrID::CALL: {
-			auto* func = static_cast<const BuiltinFunction*>(instr->data().getValue<const void*>());
-			Address selfTypeSize = func->selfType() ? func->selfType()->fixedSize() : 0;
-			std::vector<TaggedValueWeakPtr> arguments = cat::IntRange(0ll, selfTypeSize + func->argumentsStackSize())
-					.map_c(LAMBDA2(&stackLayout, ) { return stackLayout.popValue(); })
-					.toVector();
-			arguments = cat::reversed(arguments).toVector();
-
-			TaggedInstructionWeakPtr taggedInstr;
-			if (func->hasSideEffect()) {
-				taggedInstr = stackLayout.addInstructionWithSideEffect(*instr, std::move(arguments));
-			} else {
-				taggedInstr = stackLayout.addInstruction(*instr, std::move(arguments));
-			}
-
-			for (auto i = func->returnType()->fixedSize() + selfTypeSize; i --> 0;) {
-				stackLayout.pushValue(std::nullopt, taggedInstr);
-			}
-		} break;
-		case InstrID::CALL2: {
-			// TODO: resolve actual changes to stack!
-			stackLayout.invalidate();
-	//		auto* func = static_cast<const BuiltinFunction*>(instr->data().getValue<const void*>());
-	//		for (auto i = func->argumentsStackSize(); i-->0;) {
-	//			stackLayout.popValue();
-	//		}
-	//		for (auto i = func->returnType()->fixedSize(); i-->0;) {
-	//			stackLayout.pushValue();
-	//		}
-		} break;
-
-		case InstrID::READ_STCK_F: {
-			stackLayout.readValue(instr->data().getValue<int64_t>());
-		} break;
-		case InstrID::READ_STCK_D: {
-	//		Address addr = Address(_temporaryStack.size()) - data.getValue<int64_t>() - 1;
-	//		addr -= _temporaryStack.pop().getValue<int64_t>();
-			// TODO: resolve actual changes to stack!
-			auto instruct = InterInstr(instr->id(), stackLayout.getAbsoluteAddress(instr->data().getValue<Address>()), instr->pos());
-			auto arg = stackLayout.popValue();
-
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstructionWithSideEffect(instruct, {arg}));
-			//stackLayout.invalidate();
-//			stackLayout.popValue();
-//			stackLayout.pushValue();
-		} break;
-
-		case InstrID::WRITE_STCK_F: {
-			stackLayout.writeValue(instr->data().getValue<int64_t>());
-		} break;
-		case InstrID::WRITE_STCK_D: {
-	//		Address addr = Address(_temporaryStack.size()) - data.getValue<int64_t>() - 1;
-	//		addr -= _temporaryStack.pop().getValue<int64_t>();
-			// TODO: resolve actual changes to stack!
-			auto instruct = InterInstr(instr->id(), stackLayout.getAbsoluteAddress(instr->data().getValue<Address>()), instr->pos());
-			auto arg1 = stackLayout.popValue();
-			stackLayout.addInstructionWithSideEffect(instruct, {arg1});
-			//stackLayout.invalidate();
-//			stackLayout.popValue();
-//			stackLayout.retagStackValues();
-		} break;
-
-		case InstrID::READ_FA: {
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstructionWithSideEffect(*instr, {}));
-		} break;
-	/*	case InstrID::READ_DA: {
-			auto addr = _temporaryStack.pop().getValue<int64_t>();
-			_temporaryStack.push(_variables.at(addr));
-			++_programmCounter;
-		} break; */
-		case InstrID::READ_FR: {
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstructionWithSideEffect(*instr, {arg1}));
-		} break;
-		case InstrID::READ_DR: {
-			auto arg2 = stackLayout.popValue();
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstructionWithSideEffect(*instr, {arg1, arg2}));
-		} break;
-
-		case InstrID::WRITE_FA: {
-			auto arg1 = stackLayout.popValue();
-			stackLayout.addInstructionWithSideEffect(*instr, {arg1});
-		} break;
-	//	case InstrID::WRITE_DA: {
-	//		auto addr = _temporaryStack.pop().getValue<int64_t>();
-	//		_variables.at(addr) = _temporaryStack.pop();
-	//		++_programmCounter;
-	//	} break;
-		case InstrID::WRITE_FR: {
-			auto arg2 = stackLayout.popValue();
-			auto arg1 = stackLayout.popValue();
-			stackLayout.addInstructionWithSideEffect(*instr, {arg1, arg2});
-		} break;
-		case InstrID::WRITE_DR: {
-			auto arg3 = stackLayout.popValue();
-			auto arg2 = stackLayout.popValue();
-			auto arg1 = stackLayout.popValue();
-			stackLayout.addInstructionWithSideEffect(*instr, {arg1, arg2, arg3});
-		} break;
-
-		case InstrID::POP_VAL: {
-			stackLayout.popValue();
-		} break;
-		case InstrID::PUSH_INT: {
-			stackLayout.pushValue(instr->data().getValue<int64_t>(), stackLayout.addInstruction(*instr, {}));
-		} break;
-		case InstrID::PUSH_STR: {
-			stackLayout.pushValue(instr->data().getValue<std::string>(), stackLayout.addInstruction(*instr, {}));
-		} break;
-
-
-		case InstrID::POP_CNTR: {
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstruction(*instr, {}));
-		} break;
-		case InstrID::PUSH_CNTR_FR: {
-			NGPL_ASSERT(false);
-			stackLayout.invalidate();
-		} break;
-
-
-		case InstrID::ADD_SI: {
-			auto arg2 = stackLayout.popValue();
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstruction(*instr, {arg1, arg2}));
-		} break;
-		case InstrID::SUB_SI: {
-			auto arg2 = stackLayout.popValue();
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstruction(*instr, {arg1, arg2}));
-		} break;
-		case InstrID::MUL_SI: {
-			auto arg2 = stackLayout.popValue();
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstruction(*instr, {arg1, arg2}));
-		} break;
-		case InstrID::DIV_SI: {
-			auto arg2 = stackLayout.popValue();
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstruction(*instr, {arg1, arg2}));
-		} break;
-		case InstrID::REM_SI: {
-			auto arg2 = stackLayout.popValue();
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstruction(*instr, {arg1, arg2}));
-		} break;
-		case InstrID::NEG_SI: {
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstruction(*instr, {arg1}));
-		} break;
-		case InstrID::SHR_SI: {
-			auto arg2 = stackLayout.popValue();
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstruction(*instr, {arg1, arg2}));
-		} break;
-		case InstrID::SHL: {
-			auto arg2 = stackLayout.popValue();
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstruction(*instr, {arg1, arg2}));
-		} break;
-		case InstrID::AND: {
-			auto arg2 = stackLayout.popValue();
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstruction(*instr, {arg1, arg2}));
-		} break;
-		case InstrID::OR: {
-			auto arg2 = stackLayout.popValue();
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstruction(*instr, {arg1, arg2}));
-		} break;
-		case InstrID::XOR: {
-			auto arg2 = stackLayout.popValue();
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstruction(*instr, {arg1, arg2}));
-		} break;
-		case InstrID::NOT: {
-			auto arg1 = stackLayout.popValue();
-			stackLayout.pushValue(std::nullopt, stackLayout.addInstruction(*instr, {arg1}));
-		} break;
-
-
-
-	//	case InstrID::IF_Z: {
-	//		if (_temporaryStack.pop().getValue<int64_t>()) {
-	//			_programmCounter += 2;
-	//		} else {
-	//			++_programmCounter;
-	//		}
-	//	} break;
-	//	case InstrID::IF_NZ: {
-	//		if (_temporaryStack.pop().getValue<int64_t>()) {
-	//			++_programmCounter;
-	//		} else {
-	//			_programmCounter += 2;
-	//		}
-	//	} break;
-
-
-	//	case InstrID::JMP_FR: {
-	//		_programmCounter += data.getValue<int64_t>();
-	//	} break;
-
-
-	//	case InstrID::JMP_FA: {
-	//		_programmCounter = data.getValue<int64_t>();
-	//	} break;
-	//	case InstrID::JMP_DA: {
-	//		_funcCallCounter++;
-	//		_programmCounter = _temporaryStack.pop().getValue<int64_t>();
-	//	} break;
-
-		default:
-			throw cat::Exception(cat::SW() << "unknown Instruction ID. " << *instr);
-		}
-	}
-
-	void optimizeIf(itm::IntermediateIfWeakPtr ifInstr, StackLayoutScenario& stackLayout) {
-		auto ifStackLayout = stackLayout;
-		optimizeCodeContainer(&ifInstr->ifCode, ifStackLayout);
-		auto elseStackLayout = stackLayout;
-		optimizeCodeContainer(&ifInstr->elseCode, elseStackLayout);
-		// ifStackLayout and elseStackLayout should be the same
-		if (not ifStackLayout.isValid()){
-			stackLayout = ifStackLayout;
-		} else if (not elseStackLayout.isValid()){
-			stackLayout = elseStackLayout;
-		} else {
-			// TODO: merge both stackLayouts...!
-			stackLayout = elseStackLayout;
-			stackLayout.invalidate();
-		}
-	}
-
-	void optimizeLoop(intermediate::IntermediateLoopWeakPtr loopInstr, StackLayoutScenario& stackLayout) {
-		optimizeCodeContainer(&loopInstr->code, stackLayout);
-	}
-
-	void optimizeSpecial(intermediate::IntermediateSpecialWeakPtr specialInstr) {
-		switch (specialInstr->id) {
-		case itm::IntermediateSpecialId::RETURN:
-			break;
-		case itm::IntermediateSpecialId::CONTINUE:
-			break;
-		case itm::IntermediateSpecialId::BREAK:
-			break;
-		}
-	}
 
 	// ================================================================================================================
 	// ================================================================================================================
 	// ================================================================================================================
 
 	void cleanup() {
-		cleanupScope(_unit->scope().getRaw());
+		cleanupScope(_unit->scope());
 		cleanupCodeContainer(&_unit->body());
 	}
 
 	void cleanupScope(ScopeWeakPtr scope) {
 		foreach_v(func, cat::range(scope->getFunctions())
 				  .flatmap(LAMBDA_n(funcsPair) { return cat::range(funcsPair.second); })
-				  .map(LAMBDA_n(funcPair) { return funcPair.second.getRaw(); })
+				  .map(LAMBDA_n(funcPair) { return funcPair.second.weak(); })
 		) {
 			cleanupFunc(func);
 		}
 
 		foreach_v(type, cat::range(scope->getTypes())
-				  .map_c(LAMBDA_n(typePair) { return typePair.second.getRaw(); })
+				  .map_c(LAMBDA_n(typePair) { return typePair.second.weak(); })
 		) {
 			cleanupType(type);
 		}
 	}
 
-	void cleanupCodeContainer(intermediate::IntermediateCodeContainerWeakPtr container) {
+	void cleanupCodeContainer(itm::IntermediateCodeContainerWeakPtr container) {
 		for (size_t i = 0; i < container->instructions.size(); ++i) {
 			auto& code = container->instructions[i];
-			intermediate::IntermediateInstructionPtr replacementInstruction = nullptr;
-			if (auto instr = code.as<itm::IntermediateSimpleInstruction>()) {
+			itm::IntermediateInstructionPtr replacementInstruction = nullptr;
+			if (auto instr = code.as<SimpleInstr>()) {
 				replacementInstruction = cleanupInstruction(instr);
 			} else if (auto ifInstr = code.as<itm::IntermediateIf>()) {
 				replacementInstruction = cleanupIf(ifInstr);
@@ -742,7 +638,7 @@ public:
 	// ================================================================================================================
 
 	void cleanupType(TypeWeakPtr type) {
-		cleanupScope(type->scope().getRaw());
+		cleanupScope(type->scope());
 		ValueStore valueStore;
 		cleanupCodeContainer(&type->body());
 	}
@@ -755,7 +651,7 @@ public:
 
 	// ================================================================================================================
 
-	intermediate::IntermediateSimpleInstructionPtr cleanupInstruction(itm::IntermediateSimpleInstructionWeakPtr instr) {
+	SimpleInstrPtr cleanupInstruction(SimpleInstrWeakPtr instr) {
 		auto& data = instr->data();
 		switch (instr->id()) {
 		case InstrID::NOP: {} break;
@@ -767,7 +663,7 @@ public:
 
 		case InstrID::READ_STCK_F: {
 			if (data.getValue<Address>() == 0) {
-				return new intermediate::IntermediateSimpleInstruction(Instrs::Dup(0, instr->pos()));
+				return new SimpleInstr(Instrs::Dup(0, instr->pos()));
 			}
 		} break;
 		case InstrID::READ_STCK_D: {} break;
@@ -814,14 +710,14 @@ public:
 
 		case InstrID::JMP_FA: {} break;
 		case InstrID::JMP_DA: {} break;
-*/
+* /
 		default:
 			throw cat::Exception(cat::SW() << "unknown Instruction ID. " << *instr);
 		}
 		return nullptr;
 	}
 
-	intermediate::IntermediateInstructionPtr cleanupIf(itm::IntermediateIfWeakPtr ifInstr) {
+	itm::IntermediateInstructionPtr cleanupIf(itm::IntermediateIfWeakPtr ifInstr) {
 		cleanupCodeContainer(&ifInstr->ifCode);
 		cleanupCodeContainer(&ifInstr->elseCode);
 
@@ -829,8 +725,8 @@ public:
 			if (ifInstr->elseCode.isEmpty()) {
 				// this 'if' is completely useless, so remove it:
 
-				intermediate::IntermediateInstructionWeakPtr replacementInstruction = ifInstr;
-				return new intermediate::IntermediateSimpleInstruction(Instrs::Nop(ifInstr->pos()));
+				itm::IntermediateInstructionWeakPtr replacementInstruction = ifInstr;
+				return new SimpleInstr(Instrs::Nop(ifInstr->pos()));
 			} else {
 				// elseCode exists but if Code doesn't, so swap them:
 				std::swap(ifInstr->ifCode, ifInstr->elseCode);
@@ -840,12 +736,12 @@ public:
 		return nullptr;
 	}
 
-	intermediate::IntermediateInstructionPtr cleanupLoop(intermediate::IntermediateLoopWeakPtr loopInstr) {
+	itm::IntermediateInstructionPtr cleanupLoop(itm::IntermediateLoopWeakPtr loopInstr) {
 		cleanupCodeContainer(&loopInstr->code);
 		return nullptr;
 	}
 
-	intermediate::IntermediateInstructionPtr cleanupSpecial(intermediate::IntermediateSpecialWeakPtr specialInstr) {
+	itm::IntermediateInstructionPtr cleanupSpecial(itm::IntermediateSpecialWeakPtr specialInstr) {
 		switch (specialInstr->id) {
 		case itm::IntermediateSpecialId::RETURN:
 			break;
@@ -867,7 +763,7 @@ public:
 	 * @param stack
 	 * @param value
 	 * @return relative index of value in stack or -1 if not found
-	 */
+	 * /
 	int64_t findRelativeIndexInStack(const cat::Stack<TaggedValueWeakPtr>& stack, TaggedValueWeakPtr value) {
 		for (size_t i = stack.size(); i --> 0; ) {
 			if (stack[i]->id == value->id) {
@@ -901,7 +797,7 @@ public:
 		return cat::range(orderOfGeneration)
 				.map(LAMBDA2(&, i) { return operands[i]; })
 				.toVector();
-		*/
+		* /
 	}
 
 
@@ -914,7 +810,7 @@ public:
 	 * @param alreadyGeneratedValues
 	 * walks the DAG (Directed Acyclic Graph) in execution order and determines all values that are needed to calulate this 'subTree'[see: devDocs/dataFlowOptimization.drawio].
 	 * already generated values are considered.
-	 */
+	 * /
 	void cacheAllRecursivelyRequiredValuesForGraph(TaggedInstructionWeakPtr instruction, std::unordered_set<TaggedValueWeakPtr>& alreadyGeneratedValues) {
 		struct OperandsPreviouselySeenUsage{ uint32_t index; int32_t usageCount; };
 
@@ -1092,14 +988,14 @@ public:
 		} else {
 			if (toRel == 0) {
 				NGPL_ASSERT(stackLayout.peekValue()->usageCount == 0);
-				intermediateCode.push_back(new InterInstr(Instrs::PopVal(pos)));
+				intermediateCode.push_back(new SimpleInstr(Instrs::PopVal(pos)));
 				stackLayout.popValue();
 				fromRel -= 1; // account for changed stack;
 				toRel -= 1; // account for changed stack;
 			}
 
 			if (fromRel > 0) {
-				intermediateCode.push_back(new InterInstr(Instrs::ReadStackF(fromRel, pos)));
+				intermediateCode.push_back(new SimpleInstr(Instrs::ReadStackF(fromRel, pos)));
 				stackLayout.readValue(fromRel);
 				toRel += 1; // account for changed stack;
 				// mark old position ov value as reusable, by setting its usageCount to 0,
@@ -1112,7 +1008,7 @@ public:
 				//
 			} else if (toRel > 0) {
 				NGPL_ASSERT(stackLayout.getValue(toRel)->usageCount == 0);
-				intermediateCode.push_back(new InterInstr(Instrs::WriteStackF(toRel, pos)));
+				intermediateCode.push_back(new SimpleInstr(Instrs::WriteStackF(toRel, pos)));
 				stackLayout.writeValue(toRel);
 
 			}
@@ -1126,7 +1022,7 @@ public:
 	) {
 		while (not stackLayout.getStack().empty() and stackLayout.peekValue()->usageCount <= 0) {
 			NGPL_ASSERT(stackLayout.peekValue()->usageCount == 0);
-			intermediateCode.push_back(new InterInstr(Instrs::PopVal(pos)));
+			intermediateCode.push_back(new SimpleInstr(Instrs::PopVal(pos)));
 			stackLayout.popValue();
 		}
 	}
@@ -1162,9 +1058,9 @@ public:
 				break;
 			} /*else if (moveLeftCounts.at(index) == -1) {
 				continue;
-			}*/
+			} /
 			if (stackLayout.peekValue()->usageCount == 0) {
-				intermediateCode.push_back(new InterInstr(Instrs::PopVal(pos)));
+				intermediateCode.push_back(new SimpleInstr(Instrs::PopVal(pos)));
 				stackLayout.popValue();
 				continue;
 			} else if (moveLeftCounts.at(index) == -1) {
@@ -1230,19 +1126,19 @@ public:
 				if (moveDontCopy or value->usageCount == 1) {
 					// pass; value already is where it needs to be
 				} else {
-					intermediateCode.push_back(new InterInstr(Instrs::Dup(0, pos)));
+					intermediateCode.push_back(new SimpleInstr(Instrs::Dup(0, pos)));
 					stackLayout.readValue(0);
 				}
 			}  else if (existingIndex == 1) {
 				if (moveDontCopy or value->usageCount == 1) {
-					intermediateCode.push_back(new InterInstr(Instrs::Swap(pos)));
+					intermediateCode.push_back(new SimpleInstr(Instrs::Swap(pos)));
 					stackLayout.swap();
 				} else {
-					intermediateCode.push_back(new InterInstr(Instrs::ReadStackF(1, pos)));
+					intermediateCode.push_back(new SimpleInstr(Instrs::ReadStackF(1, pos)));
 					stackLayout.readValue(1);
 				}
 			} else {
-				intermediateCode.push_back(new InterInstr(Instrs::ReadStackF(existingIndex, pos)));
+				intermediateCode.push_back(new SimpleInstr(Instrs::ReadStackF(existingIndex, pos)));
 				stackLayout.readValue(existingIndex);
 				if (moveDontCopy) {
 					// mark old position of value as reusable, by setting its usageCount to 0,
@@ -1293,7 +1189,7 @@ public:
 			}
 		}
 	}
-	*/
+	* /
 
 	void preGenerateValuesForInstruction(
 			TaggedInstructionCWeakPtr instruction,
@@ -1323,7 +1219,7 @@ public:
 	 * @param stackLayout
 	 * @param intermediateCode
 	 * @return std::vector<TaggedValueWeakPtr> orderedOperands
-	 */
+	 * /
 	std::vector<TaggedValueWeakPtr> prepareValuesForInstruction(
 			TaggedInstructionCWeakPtr taggedInstr,
 			StackLayoutScenario& stackLayout,
@@ -1333,13 +1229,13 @@ public:
 		 * Algorithm:
 		 *  1. generate instructions for the values in return starting with the lowest lamportTimestamps, left to right
 		 *
-		 */
+		 * /
 		const auto& operands = taggedInstr->operands;
 		auto orderedOperands = getOrderedOperands(operands);
 
 		/*
 		preGenerateSomeValues(values, orderOfGeneration, stackLayout, intermediateCode);
-		*/
+		* /
 		preGenerateValuesForInstruction(taggedInstr, stackLayout, intermediateCode);
 
 		// Generate or find required values:
@@ -1377,7 +1273,7 @@ public:
 				}
 			} else {
 //				if (not isLastUsage) {
-//					generateValue(value, taggedInstr->instr.pos(), stackLayout, intermediateCode, value->usageCount <= 1);
+//					generateValue(value, taggedInstr->instr->pos(), stackLayout, intermediateCode, value->usageCount <= 1);
 //					NGPL_ASSERT(value->isVirtual or value->id == stackLayout.peekValue()->id);
 //					lastIndex = 0;
 //				}
@@ -1391,7 +1287,7 @@ public:
 					// we just analyzed the non-virtuals.
 					continue;
 				}
-				generateValue(value, taggedInstr->instr.pos(), stackLayout, intermediateCode, value->usageCount <= 1);
+				generateValue(value, taggedInstr->instr->pos(), stackLayout, intermediateCode, value->usageCount <= 1);
 			}
 		}
 
@@ -1399,7 +1295,7 @@ public:
 		if (not smartValueGenerationWasSuccessful) {
 			foreach_c(value, orderedOperands) {
 				NGPL_ASSERT( value->usageCount >= 0);
-				generateValue(value, taggedInstr->instr.pos(), stackLayout, intermediateCode, value->usageCount <= 1);
+				generateValue(value, taggedInstr->instr->pos(), stackLayout, intermediateCode, value->usageCount <= 1);
 				NGPL_ASSERT(value->isVirtual or value->id == stackLayout.peekValue()->id);
 			}
 		}
@@ -1420,12 +1316,12 @@ public:
 	) {
 		const auto orderedOperands = prepareValuesForInstruction(taggedInstr, stackLayout, intermediateCode);
 
-		auto instruct = taggedInstr->instr;
-		if (cat::isAnyOf(instruct.id(), InstrID::READ_STCK_D, InstrID::WRITE_STCK_D)) {
-			instruct = InterInstr(instruct.id(), stackLayout.getRelativeAddress(instruct.data().getValue<Address>()), instruct.pos());
+		auto instruct = (taggedInstr->instr.weak());
+		if (cat::isAnyOf(instruct->id(), InstrID::READ_STCK_D, InstrID::WRITE_STCK_D)) {
+			instruct = SimpleInstr(instruct.id(), stackLayout.getRelativeAddress(instruct.data().getValue<Address>()), instruct.pos());
 		}
 
-		intermediateCode.push_back(new InterInstr(instruct));
+		intermediateCode.push_back(new SimpleInstr(instruct));
 
 		foreach_c(value, orderedOperands) {
 			if (not value->isVirtual) {
@@ -1464,17 +1360,17 @@ public:
 			auto value = values.at(index);
 			createRecursiveArgumentsForGraph(value);
 		}
-		*/
+		* /
 		{
 			std::unordered_set<TaggedValueWeakPtr> alreadyGeneratedValues;
 			cacheAllRecursivelyRequiredValuesForGraph(taggedInstr, alreadyGeneratedValues);
 		}
 
 		// all following operations expect a clean stack:
-		popUnusedValues(taggedInstr->instr.pos(), stackLayout, intermediateCode);
+		popUnusedValues(taggedInstr->instr->pos(), stackLayout, intermediateCode);
 		/*
 		preGenerateSomeValues(values, orderOfGeneration, stackLayout, intermediateCode);
-		*/
+		* /
 		preGenerateValuesForInstruction(taggedInstr, stackLayout, intermediateCode);
 
 		const auto& stack = stackLayout.getStack();
@@ -1517,7 +1413,7 @@ public:
 						// TODO: maybe move this to after generateValue(...)? (using a SWAP instruction)
 						auto relativeIndex = stack.size() - index - 1;
 						stackLayout.readValue(relativeIndex);
-						intermediateCode.push_back(new InterInstr(Instrs::ReadStackF(relativeIndex, taggedInstr->instr.pos())));
+						intermediateCode.push_back(new SimpleInstr(Instrs::ReadStackF(relativeIndex, taggedInstr->instr->pos())));
 					}
 				}
 			}
@@ -1527,7 +1423,7 @@ public:
 				stackLayout.setStackCompressionBarrier(std::max(stackLayout.stackCompressionBarrier(), (uint32_t)index+1));
 			}
 			// generatethe actual value:
-			generateValue(value, taggedInstr->instr.pos(), stackLayout, intermediateCode, value->usageCount <= 1);
+			generateValue(value, taggedInstr->instr->pos(), stackLayout, intermediateCode, value->usageCount <= 1);
 			NGPL_ASSERT(value->isVirtual or value->id == stackLayout.peekValue()->id);
 
 			// put it in place:
@@ -1536,7 +1432,7 @@ public:
 
 				auto relativeIndex = stack.size() - index - 1;
 				if (relativeIndex > 0 ) {
-					intermediateCode.push_back(new InterInstr(Instrs::WriteStackF(relativeIndex, taggedInstr->instr.pos())));
+					intermediateCode.push_back(new SimpleInstr(Instrs::WriteStackF(relativeIndex, taggedInstr->instr->pos())));
 					stackLayout.writeValue(relativeIndex);
 	//				stackLayout.pushValue(std::nullopt, nullptr);
 	//				std::swap(*stackLayout.peekValue(), *value);
@@ -1548,11 +1444,11 @@ public:
 
 		// clean up stack
 		for (size_t i = stack.size() - (0); i --> returnCount; ) { // operands.size()-1 here because operands contain 1virtual value.
-			intermediateCode.push_back(new InterInstr(Instrs::PopVal(taggedInstr->instr.pos())));
+			intermediateCode.push_back(new SimpleInstr(Instrs::PopVal(taggedInstr->instr->pos())));
 			const auto value = stackLayout.popValue();
 			NGPL_ASSERT(cat::isAnyOf(value->usageCount, 0, 1));
 		}
-		intermediateCode.push_back(new intermediate::IntermediateSpecial(intermediate::IntermediateSpecialId::RETURN, taggedInstr->instr.pos()));
+		intermediateCode.push_back(new itm::IntermediateSpecial(itm::IntermediateSpecialId::RETURN, taggedInstr->instr->pos()));
 
 		return true;
 	}
@@ -1560,7 +1456,7 @@ public:
 
 	UnitWeakPtr _unit;
 };
-
+*/
 
 
 
@@ -1571,9 +1467,9 @@ public:
 
 void Optimizer::optimize(const UnitWeakPtr& unit)
 {
-	OptimizerInternal optimizer(unit);
-	optimizer.optimize();
-	optimizer.cleanup();
+//	OptimizerInternal optimizer(unit);
+//	optimizer.optimize();
+//	optimizer.cleanup();
 }
 
 }

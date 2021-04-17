@@ -31,7 +31,7 @@ void Tokenizer::advance()
 	} else if (c == '"') {
 		readString();
 	} else {
-		throw SyntaxError(cat::SW() << "Stray '" << std::string()+getChar() << "' im program.", pos.get());
+		throw SyntaxError(cat::SW() << "Stray '" << cat::String()+getChar() << "' im program.", pos.get());
 	}
 }
 
@@ -44,7 +44,7 @@ void Tokenizer::readIdentifierOrKeyword()
 		pos.addvanceChar();
 	} while (not isEnd() and isIdentifierOrKeywordInnerChar(getChar()) );
 
-	std::string content = src.substr(start.index(), (pos - start).index());
+	cat::String content = src.substr(start.index(), (pos - start).index());
 	if (isKeyword(content)) {
 		this->current = Token(TokenKind::KEYWORD, content, start);
 	} else if (cat::isAnyOf(content, "and", "or", "not")) {
@@ -70,7 +70,7 @@ void Tokenizer::readNumber()
 		throw (SyntaxError("Integer contains invalid character(s).", pos.get()));
 	}
 
-	std::string content = src.substr(start.index(), (pos - start).index());
+	cat::String content = src.substr(start.index(), (pos - start).index());
 	this->current = Token(TokenKind::NUMBER, content, start);
 }
 
@@ -82,7 +82,7 @@ void Tokenizer::readString()
 		pos.addvanceChar();
 	} ;
 
-	std::string content = src.substr(start.index(), (pos - start).index());
+	cat::String content = src.substr(start.index(), (pos - start).index());
 
 	if (not isEnd()) {
 		pos.addvanceChar();
@@ -97,7 +97,7 @@ void Tokenizer::readString()
 void Tokenizer::readSeparator()
 {
 	const auto start = pos.get();
-	std::string content = std::string() + getChar();
+	cat::String content = cat::String() + getChar();
 	pos.addvanceChar();
 	this->current = Token(TokenKind::SEPARATOR, content, start);
 }
@@ -106,7 +106,7 @@ void Tokenizer::readOperator()
 {
 	const auto start = pos.get();
 	char c = getChar();
-	std::string content = std::string() + c;
+	cat::String content = cat::String() + c;
 	pos.addvanceChar();
 	if (cat::isAnyOf(c, '>', '<', '=', '!') and not isEnd() and getChar() == '=') {
 		content += '=';
@@ -276,7 +276,7 @@ bool Tokenizer::isIdentifierOrKeywordInnerChar(char c) const
 		or isDecimal(c);
 }
 
-bool Tokenizer::isKeyword(const std::string& s) const
+bool Tokenizer::isKeyword(const cat::String& s) const
 {
 	return cat::isAnyOf(
 		s,
@@ -304,7 +304,7 @@ bool Tokenizer::isKeyword(const std::string& s) const
 	);
 }
 
-bool Tokenizer::isBoolen(const std::string& s) const
+bool Tokenizer::isBoolen(const cat::String& s) const
 {
 	return cat::isAnyOf(s, "true", "false");
 }

@@ -5,9 +5,9 @@
 #include "../language/position.h"
 
 #include "ranges.h"
+#include "cat_string.h"
 #include "toStringUtils.h"
 
-#include <string>
 #include <queue>
 
 namespace ngpl {
@@ -18,7 +18,7 @@ public:
 	using CatIterator = _CatIterator<Token, Tokenizer>;
 
 protected:
-	std::string src;
+	cat::String src;
 	MutablePosition pos;
 
 	Token current;
@@ -47,10 +47,10 @@ protected:
 	}
 
 public:
-	Tokenizer(const std::string& src): CatIterator(), src(src), pos() {
+	Tokenizer(const cat::String& src): CatIterator(), src(src), pos() {
 	advance(); // go to first token
 	};
-	Tokenizer(const std::string& src, MutablePosition &&pos): CatIterator(), src(src), pos(std::move(pos)) {
+	Tokenizer(const cat::String& src, MutablePosition &&pos): CatIterator(), src(src), pos(std::move(pos)) {
 	// advance(); do not to first token bc. pos already is somewhere in the src string.
 	};
 
@@ -101,8 +101,8 @@ public:
 	bool isIdentifierOrKeywordOpeningChar(char c) const ;
 	bool isIdentifierOrKeywordInnerChar(char c) const ;
 
-	bool isKeyword(const std::string& s) const;
-	bool isBoolen(const std::string& s) const;
+	bool isKeyword(const cat::String& s) const;
+	bool isBoolen(const cat::String& s) const;
 };
 
 

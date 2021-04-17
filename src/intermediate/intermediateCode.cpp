@@ -44,21 +44,21 @@ bool IntermediateSimpleInstruction::hasSideEffect() const {
 cat::WriterObjectABC& IntermediateSimpleInstruction::print(cat::WriterObjectABC& s) const
 {
 	s += cat::nlIndent;
-	const auto idStr = std::string(cat::SW() << _id);
+	const auto idStr = cat::String(cat::SW() << _id);
 	s += idStr;
-	s += std::string(std::max(2ll, 20 - int64_t(idStr.length())), ' ');
+	s += cat::String(std::max(2ll, 20 - int64_t(idStr.length())), ' ');
 
 	auto dataStr = cat::formatVal(_data);
 	if (id() == InstructionID::CALL) {
 		dataStr = static_cast<const FunctionBase*>(data().getValue<const void*>())->asQualifiedCodeString();
 	}
 	s += dataStr;
-	s += std::string(std::max(2ll, 35 - int64_t(dataStr.length())), ' ');
+	s += cat::String(std::max(2ll, 35 - int64_t(dataStr.length())), ' ');
 	s +=  _pos.line();
 	return s;
 }
 
-std::string IntermediateSimpleInstruction::toString() const
+cat::String IntermediateSimpleInstruction::toString() const
 {
 	auto s = cat::SW();
 	print(s);

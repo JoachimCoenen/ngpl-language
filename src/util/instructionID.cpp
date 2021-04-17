@@ -1,6 +1,6 @@
 #include "instructionID.h"
 
-#include "cat_utils.h"
+#include "cat_exception.h"
 #include "toStringUtils.h"
 
 namespace ngpl {

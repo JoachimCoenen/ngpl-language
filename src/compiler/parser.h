@@ -5,7 +5,7 @@
 #include "../language/ast.h"
 #include "../language/token.h"
 
-#include <string>
+#include "cat_string.h"
 
 namespace ngpl {
 
@@ -29,6 +29,7 @@ public:
 	ConstDeclarationPtr parseConstDeclaration();
 	VarDeclarationPtr parseVarDeclaration();
 	TypeDeclarationPtr parseTypeDeclaration();
+	std::vector<DeclarationPtr> parseTypeBody();
 
 	AssignmentPtr parseAssignment(VariableReferencePtr&& variableReference);
 	IfControlPtr parseIfControl();
@@ -40,10 +41,11 @@ public:
 	ExpressionPtr parseExpressionNoOp();
 	ExpressionPtr parseExpression();
 
-	BlockPtr parseBlock(const std::initializer_list<std::string>& endMarkers);
+	BlockPtr parseBlock(const std::initializer_list<cat::String>& endMarkers);
 	ExpressionPtr parseVarReferenceOrFunctionCall();
 	UnaryOperatorCallPtr parseUnaryOperator();
 
+	std::vector<TypeExprPtr> parseTypeArguments();
 	std::vector<ExpressionPtr> parseTuple();
 	LiteralBoolPtr parseBoolean();
 	LiteralIntPtr parseInteger();
@@ -54,19 +56,19 @@ protected:
 	LookAheadIterator tokenizer;
 
 	bool wouldAcceptToken(TokenKind kind) const;
-	bool wouldAcceptToken(const std::string& str) const;
-	bool wouldAcceptAnyOfToken(const std::initializer_list<std::string>& strs) const;
+	bool wouldAcceptToken(const cat::String& str) const;
+	bool wouldAcceptAnyOfToken(const std::initializer_list<cat::String>& strs) const;
 
 	const Token& currentToken() const { return tokenizer.get(); }
 
 	bool tryAcceptToken(TokenKind kind);
-	bool tryAcceptToken(const std::string& str);
-	bool tryAcceptAnyOfToken(const std::initializer_list<std::string>& strs);
+	bool tryAcceptToken(const cat::String& str);
+	bool tryAcceptAnyOfToken(const std::initializer_list<cat::String>& strs);
 
 	Token acceptToken(TokenKind kind);
-	Token acceptToken(const std::string& str);
-	Token acceptAnyOfToken(const std::initializer_list<std::string>& strs);
-	// TODO: Token acceptToken(std::initializer_list<std::string> strs);
+	Token acceptToken(const cat::String& str);
+	Token acceptAnyOfToken(const std::initializer_list<cat::String>& strs);
+	// TODO: Token acceptToken(std::initializer_list<cat::String> strs);
 
 protected:
 	/**
@@ -74,7 +76,7 @@ protected:
 	 * @param expectation
 	 * @throws SyntaxError if end of stream is reached (tokenizer.isPastEnd() returns true)
 	 */
-	void raiseEndOfStreamError(const std::string& expectation) const;
+	void raiseEndOfStreamError(const cat::String& expectation) const;
 
 	/**
 	 * @brief checkNotEndOfStream

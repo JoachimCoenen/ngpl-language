@@ -1,7 +1,20 @@
 unit Test
 
 type Point = struct { 
-	var x: Int var y: Int var z: Int 
+	var x: Int var y: Int var z: Int
+	/*
+	func get7() -> Int {
+		return 7
+	}
+	
+	func get42() -> Int {
+		var result = 20 + 22
+		return result
+	}
+	*/
+	func getX() -> Int {
+		return self.x
+	}
 	
 	func str() -> String {
 		return "Pointy(" + 
@@ -53,36 +66,95 @@ func print2(p: Point) {
 }
 
 
-func main() {
-	var p = Point(7, 8, 9)
+type Point2 = class { 
+	var x: Int var y: Int var z: Int
 	
-	print(p)
+	func getX() -> Int {
+		return self.x
+	}
 	
-	p.rotate()
+	func str() -> String {
+		return "Point2y(" + 
+			String(self.x) + ", " + 
+			String(self.y) + ", " + 
+			String(self.z) + 
+		")"
+	}
 	
-	print(p)
+	func rotate() {
+		let tmp = self.x
+		self.x = self.y
+		self.y = self.z
+		self.z = tmp
+	}
 	
-	print(p.str())
+	func translateX(amount: Int) {
+		self.x = self.x + amount
+	}
 	
-	p.translateX(-7)
+	func translateY(amount: Int) {
+		self.y = self.y + amount
+	}
 	
-	print2(p)
+	func translateZ(amount: Int) {
+		self.z = self.z + amount
+	}
 	
 }
 
+func Point2(x: Int, y: Int, z: Int) -> Point2 {
+	var p: Point2
+	p.x = x
+	p.y = y
+	p.z = z
+	return p
+}
 
+func String(p: Point2) -> String {
+	return "Point2(" + String(p.x) + ", " + String(p.y) + ", " + String(p.z) + ")"
+}
+
+func print(p: Point2) {
+	print(String(p))
+}
+
+func print2(p: Point2) {
+	print(p.str())
+}
+
+func main1() {
+	var p = Point(7, 8, 9)
+	
+	print(p)
+	p.rotate()
+	print(p)
+	print(p.str())
+	p.translateX(-7)
+	print2(p)
+}
+
+func main2() {
+	var p = Point2(7, 8, 9)
+	
+	print(p)
+	p.rotate()
+	print(p)
+	print(p.str())
+	p.translateX(-7)
+	print2(p)
+}
+
+
+/*
 var p = Point(7, 8, 9)
-
 print(p)
-
 p.rotate()
-
 print(p)
-
 print(p.str())
-
 p.translateX(-7)
-
-print2(p)
-
-main()
+print2(p)*/
+print("--------")
+main1()
+print("----------------")
+main2()
+print("--------")

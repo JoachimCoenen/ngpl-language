@@ -8,9 +8,9 @@
 #ifndef DEBUG_H
 #define DEBUG_H
 
-#include "cat_utils.h"
+#include "cat_exception.h"
+#include <cat_string.h>
 
-#include <string>
 #include <exception>
 
 #include <cassert>
@@ -19,23 +19,23 @@ namespace ngpl::util::debug {
 
 class AssertionError: public cat::Exception {
 public:
-	AssertionError(const std::string& message, const std::string& filePath, uint32_t lineNo)
+	AssertionError(const cat::String& message, const cat::String& filePath, uint32_t lineNo)
 	: Exception(message + "\n  AssertionError in file: '" + filePath + "', at line " + std::to_string(lineNo) + ".")
 	{}
 };
 
 #if defined(_UNICODE) || defined(UNICODE)
-static inline void ngpl_assert(bool condition, const std::string& msg, const wchar_t* fileName, unsigned lineNo) {
+static inline void ngpl_assert(bool condition, const cat::String& msg, const wchar_t* fileName, unsigned lineNo) {
 	if (not condition) {
 	const std::wstring fileNameWs(fileName);
-	const std::string fileNameS(fileNameWs.begin(), fileNameWs.end());
+	const cat::String fileNameS(fileNameWs.begin(), fileNameWs.end());
 	throw AssertionError(msg, fileNameS, lineNo);
 	}
 }
 #else // defined(_UNICODE) || defined(UNICODE)
-static inline void ngpl_assert(bool condition, const std::string& msg, const char* fileName, unsigned lineNo) {
+static inline void ngpl_assert(bool condition, const cat::String& msg, const char* fileName, unsigned lineNo) {
 	if (not condition) {
-	const std::string fileNameS(fileName);
+	const cat::String fileNameS(fileName);
 	throw AssertionError(msg, fileNameS, lineNo);
 	}
 }

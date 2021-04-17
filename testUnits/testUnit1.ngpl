@@ -1,5 +1,5 @@
 unit Test
-/*
+
 func isPrime(number: Int) -> Bool {
     var i = 2
     while i < number - 1 do {
@@ -10,7 +10,7 @@ func isPrime(number: Int) -> Bool {
     }
     return true
 }
-
+/*
 //func checkSinglePrime() {
 //    print("please enter a number")
 //    var number = Int(readln())

@@ -3,6 +3,8 @@
 
 #include "util/types.h"
 
+#include "catPointers.h"
+
 namespace ngpl {
 
 
@@ -11,8 +13,8 @@ class Member
 {
 public:
 	Member(
-		const std::string& name,
-		const std::string& qualifier
+		const cat::String& name,
+		const cat::String& qualifier
 	)
 		: _name(name),
 		  _qualifier(qualifier)
@@ -21,14 +23,14 @@ public:
 	virtual ~Member() {};
 
 
-	const std::string& name() const { return _name; }
-	const std::string& qualifier() const { return _qualifier; }
+	const cat::String& name() const { return _name; }
+	const cat::String& qualifier() const { return _qualifier; }
 
-	virtual std::string asCodeString() const;
-	virtual std::string asQualifiedCodeString() const ;
+	virtual cat::String asCodeString() const;
+	virtual cat::String asQualifiedCodeString() const ;
 protected:
-	std::string _name;
-	std::string _qualifier;
+	cat::String _name;
+	cat::String _qualifier;
 
 };
 

@@ -1,11 +1,13 @@
 #ifndef INSTRUCTIONEXECUTER_H
 #define INSTRUCTIONEXECUTER_H
 
+#include "callStack.h"
 #include "instruction.h"
 #include "value.h"
 
 #include "cat_utils.h"
 #include "cat_stack.h"
+#include "cat_exception.h"
 
 #include <vector>
 
@@ -15,14 +17,14 @@ class ExecutionError : public cat::Exception
 {
 	// TODO: maybe add token argument to SyntaxError?
 public:
-	ExecutionError(const std::string& message, const Instruction& instruction);
+	ExecutionError(const cat::String& message, const Instruction& instruction);
 
 	const Instruction& instruction() const { return _instruction; }
-	const std::string& rawMessage() const { return _rawMessage; }
+	const cat::String& rawMessage() const { return _rawMessage; }
 
 protected:
 	Instruction _instruction;
-	std::string _rawMessage;
+	cat::String _rawMessage;
 };
 
 
@@ -40,10 +42,17 @@ public:
 	uint64_t _overallCounter = 0;
 	uint64_t _funcCallCounter = 0;
 
-	std::vector<Value> _variables;
-	cat::Stack<Value> _temporaryStack;
+	// std::vector<Value> _values;
+	//cat::Stack<Value> _temporaryStack;
+	CallStack _stack;
+	cat::DynArray<Value>::iterator _stackTopPtr;
 	cat::Stack<uint64_t> _programmCounterStack;
-	//cat::Stack<uint64_t> _stackFramePtr;
+	cat::SharedPtr<cat::DynArray<Value>> _globals;
+
+	bool _printStacklayout = false;
+
+protected:
+	ExecutionError nullPointerException(const Instruction&instruction);
 };
 
 }

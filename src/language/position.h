@@ -1,9 +1,9 @@
 #ifndef POSITION_H
 #define POSITION_H
 
+#include "cat_string.h"
 #include "toStringUtils.h"
 
-#include <string>
 #include <stdint.h>
 
 namespace ngpl {

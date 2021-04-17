@@ -4,6 +4,7 @@
 #include "language/position.h"
 #include "util/instructionID.h"
 #include "util/types.h"
+#include "cat_string.h"
 #include "cat_variant.h"
 
 #include <vector>
@@ -40,7 +41,7 @@ public:
 	bool isEmpty() const;
 };
 
-using SimpleInstructionData = cat::Variant<None_, std::string, int64_t, const void*>;
+using SimpleInstructionData = cat::Variant<None_, cat::String, int64_t, const void*>;
 
 PTRS_FOR_CLASS(IntermediateSimpleInstruction)
 class IntermediateSimpleInstruction: public IntermediateInstruction {
@@ -58,10 +59,10 @@ public:
 
 
 	cat::WriterObjectABC& print(cat::WriterObjectABC& s) const override final;
-	std::string toString() const;
+	cat::String toString() const;
 protected:
 	InstructionID _id;
-	// std::string holds the name of a variable.
+	// cat::String holds the name of a variable.
 	// void* is a non-owning ptr to a ngpl::Function object.
 	SimpleInstructionData _data;
 	Position _pos;

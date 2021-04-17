@@ -8,12 +8,12 @@ namespace ngpl {
 
 //}
 
-std::string Member::asCodeString() const
+cat::String Member::asCodeString() const
 {
 	return cat::SW() << name();
 }
 
-std::string Member::asQualifiedCodeString() const
+cat::String Member::asQualifiedCodeString() const
 {
 	return cat::SW() << qualifier() << name();
 }

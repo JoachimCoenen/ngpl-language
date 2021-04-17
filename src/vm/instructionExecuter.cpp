@@ -2,9 +2,14 @@
 
 #include "toStringUtils.h"
 
+#include <sstream>
+
 namespace ngpl {
 
-ExecutionError::ExecutionError(const std::string& message, const Instruction& instruction)
+const size_t maxStackSize = 1ull << 5;
+const size_t maxGlobalsSize = 100;
+
+ExecutionError::ExecutionError(const cat::String& message, const Instruction& instruction)
 	: Exception(cat::SW() << message << " at " << instruction << "."),
 	  _instruction(instruction),
 	  _rawMessage(message)
@@ -15,14 +20,15 @@ using InstrID = InstructionID;
 
 InstructionExecuter::InstructionExecuter(const std::vector<Instruction>& instructions, uint64_t programmCounter)
 	: _instructions(instructions),
-	  _programmCounter(programmCounter)
-{
-	_variables = std::vector<Value>(100, None());
-}
+	  _programmCounter(programmCounter),
+	  _stack( maxStackSize),
+	  _globals({}, maxGlobalsSize, None{})
+{}
 
 void InstructionExecuter::executeInstruction()
 {
 	_overallCounter++;
+	const auto oldPC = _programmCounter;
 	const Instruction& instruction = _instructions[_programmCounter];
 	const auto &data = instruction.data();
 
@@ -31,113 +37,143 @@ void InstructionExecuter::executeInstruction()
 		++_programmCounter;
 	} break;
 	case InstrID::DUP: {
-		_temporaryStack.push(_temporaryStack.peek());
+		_stack.push(_stack.peek());
 		++_programmCounter;
 	} break;
 	case InstrID::SWP: {
-		std::swap(_temporaryStack[_temporaryStack.size()-2], _temporaryStack[_temporaryStack.size()-1]);
+		std::swap(_stack[_stack.size()-2], _stack[_stack.size()-1]);
 		++_programmCounter;
 	} break;
 	case InstrID::CALL: {
-		auto* func = static_cast<const std::function<Value(cat::Stack<Value>&)>*>(data.getValue<const void*>());
+		auto* func = static_cast<const std::function<Value(CallStack&)>*>(data.getValue<const void*>());
 
-		auto result = (*func)(_temporaryStack);
+		auto result = (*func)(_stack);
 		if (not result.hasValue<None>()) {
-			_temporaryStack.push(std::move(result));
+			_stack.push(std::move(result));
 		}
 		++_programmCounter;
 	} break;
 
 	case InstrID::READ_STCK_F: {
-		Address addr = Address(_temporaryStack.size()) - data.getValue<int64_t>() - 1;
-		_temporaryStack.push(_temporaryStack.at(addr));
+		Address addr = Address(_stack.size()) - data.getValue<int64_t>() - 1;
+		_stack.push(_stack.at(addr));
 		++_programmCounter;
 	} break;
 	case InstrID::READ_STCK_D: {
-		Address addr = Address(_temporaryStack.size()) - data.getValue<int64_t>() - 1;
-		const auto popedVal = _temporaryStack.pop().getValue<int64_t>();
+		Address addr = Address(_stack.size()) - data.getValue<int64_t>() - 1;
+		const auto popedVal = _stack.pop().getValue<int64_t>();
 		addr -= popedVal;
-		_temporaryStack.push(_temporaryStack.at(addr));
+		_stack.push(_stack.at(addr));
 		++_programmCounter;
 	} break;
 
 	case InstrID::WRITE_STCK_F: {
-		Address addr = Address(_temporaryStack.size()) - data.getValue<int64_t>() - 1;
-		_temporaryStack.at(addr) = _temporaryStack.pop();
+		Address addr = Address(_stack.size()) - data.getValue<int64_t>() - 1;
+		_stack.at(addr) = _stack.pop();
 		++_programmCounter;
 	} break;
 	case InstrID::WRITE_STCK_D: {
-		Address addr = Address(_temporaryStack.size()) - data.getValue<int64_t>() - 1;
-		const auto popedVal = _temporaryStack.pop().getValue<int64_t>();
+		Address addr = Address(_stack.size()) - data.getValue<int64_t>() - 1;
+		auto val = _stack.pop();
+		const auto popedVal = _stack.pop().getValue<int64_t>();
 		addr -= popedVal;
-		_temporaryStack.at(addr) = _temporaryStack.pop();
+		_stack.at(addr) = std::move(val);
 		++_programmCounter;
 	} break;
 
 	case InstrID::READ_FA: {
 		auto addr = data.getValue<int64_t>();
-		_temporaryStack.push(_variables.at(addr));
+		_stack.push(_globals->at(addr));
 		++_programmCounter;
 	} break;
 /*	case InstrID::READ_DA: {
-		auto addr = _temporaryStack.pop().getValue<int64_t>();
-		_temporaryStack.push(_variables.at(addr));
+		auto addr = _stack.pop().getValue<int64_t>();
+		_stack.push(_globals->at(addr));
 		++_programmCounter;
 	} break; */
 	case InstrID::READ_FR: {
-		const auto popedVal = _temporaryStack.pop().getValue<int64_t>();
-		auto addr = popedVal + data.getValue<int64_t>();
-		_temporaryStack.push(_variables.at(addr));
+		const auto popedVal = _stack.pop().getValue<Reference>();
+		if (popedVal.source() == nullptr) {
+			throw nullPointerException(instruction);
+		}
+		auto addr = data.getValue<int64_t>();
+		_stack.push(popedVal.at(addr));
 		++_programmCounter;
 	} break;
 	case InstrID::READ_DR: {
-		const auto popedVal1 = _temporaryStack.pop().getValue<int64_t>();
-		const auto popedVal2 = _temporaryStack.pop().getValue<int64_t>();
-		auto addr = popedVal1 + popedVal2;
-		_temporaryStack.push(_variables.at(addr));
+		const auto popedVal1 = _stack.pop().getValue<Reference>();
+		const auto addr = _stack.pop().getValue<int64_t>();
+		_stack.push(popedVal1.at(addr));
 		++_programmCounter;
 	} break;
 
 	case InstrID::WRITE_FA: {
 		auto addr = data.getValue<int64_t>();
-		_variables.at(addr) = _temporaryStack.pop();
+		_globals->at(addr) = _stack.pop();
 		++_programmCounter;
 	} break;
 //	case InstrID::WRITE_DA: {
-//		auto addr = _temporaryStack.pop().getValue<int64_t>();
-//		_variables.at(addr) = _temporaryStack.pop();
+//		auto addr = _stack.pop().getValue<int64_t>();
+//		_globals->at(addr) = _stack.pop();
 //		++_programmCounter;
 //	} break;
 	case InstrID::WRITE_FR: {
-		const auto popedVal = _temporaryStack.pop().getValue<int64_t>();
-		auto addr = popedVal + data.getValue<int64_t>();
-		_variables.at(addr) = _temporaryStack.pop();
+		auto val = _stack.pop();
+		auto popedVal = _stack.pop().getValue<Reference>();
+		if (popedVal.source() == nullptr) {
+			throw nullPointerException(instruction);
+		}
+		const auto addr = data.getValue<int64_t>();
+		popedVal.at(addr) = std::move(val);
 		++_programmCounter;
 	} break;
 	case InstrID::WRITE_DR: {
-		const auto popedVal1 = _temporaryStack.pop().getValue<int64_t>();
-		const auto popedVal2 = _temporaryStack.pop().getValue<int64_t>();
-		auto addr = popedVal1 + popedVal2;
-		_variables.at(addr) = _temporaryStack.pop();
+		auto val = _stack.pop();
+		auto popedVal1 = _stack.pop().getValue<Reference>();
+		if (popedVal1.source() == nullptr) {
+			throw nullPointerException(instruction);
+		}
+		const auto addr = _stack.pop().getValue<int64_t>();
+		popedVal1.at(addr) = std::move(val);
 		++_programmCounter;
 	} break;
 
 	case InstrID::POP_VAL: {
-		_temporaryStack.pop();
+		_stack.pop();
 		++_programmCounter;
 	} break;
+
+	case InstrID::PUSH_NULL_R: {
+		_stack.push(Reference(nullptr, 0));
+		++_programmCounter;
+	} break;
+	case InstrID::PUSH_GLBLS_R: {
+		auto offset = data.getValue<int64_t>();
+		_stack.push(Reference(_globals.weak(), offset));
+		++_programmCounter;
+	} break;
+	case InstrID::PUSH_STACK_R: {
+		auto offset = data.getValue<int64_t>();
+
+		const auto fixedVal = 0;  // data.getValue<int64_t>()
+		Address addr = Address(_stack.size()) - fixedVal - 1;
+		addr -= offset;
+		_stack.push(Reference(_stack.values(), addr));
+		++_programmCounter;
+	} break;
+
 	case InstrID::PUSH_INT: {
-		_temporaryStack.push(data.getValue<int64_t>());
+		_stack.push(data.getValue<int64_t>());
 		++_programmCounter;
 	} break;
 	case InstrID::PUSH_STR: {
-		_temporaryStack.push(data.getValue<std::string>());
+		_stack.push(data.getValue<cat::String>());
 		++_programmCounter;
 	} break;
 
 
 	case InstrID::POP_CNTR: {
-		_temporaryStack.push(int64_t(_programmCounterStack.pop()));
+		_stack.push(int64_t(_programmCounterStack.pop()));
 		++_programmCounter;
 	} break;
 	case InstrID::PUSH_CNTR_FR: {
@@ -145,89 +181,107 @@ void InstructionExecuter::executeInstruction()
 		++_programmCounter;
 	} break;
 
+	case InstrID::INC_R: {
+		auto offset = data.getValue<int64_t>();
+		auto& ref = _stack.peek().getValue<Reference>();
+		ref += offset;
+		++_programmCounter;
+	} break;
 
+	case InstrID::ADD_R: {
+		auto offset = _stack.pop().getValue<int64_t>();
+		auto& ref = _stack.peek().getValue<Reference>();
+		ref += offset;
+		++_programmCounter;
+	} break;
 	case InstrID::ADD_SI: {
-		auto rhs = _temporaryStack.pop().getValue<int64_t>();
-		auto lhs = _temporaryStack.pop().getValue<int64_t>();
-		_temporaryStack.push(lhs + rhs);
+		auto rhs = _stack.pop().getValue<int64_t>();
+		auto lhs = _stack.pop().getValue<int64_t>();
+		_stack.push(lhs + rhs);
+		++_programmCounter;
+	} break;
+	case InstrID::SUB_R: {
+		auto offset = _stack.pop().getValue<int64_t>();
+		auto& ref = _stack.peek().getValue<Reference>();
+		ref -= offset;
 		++_programmCounter;
 	} break;
 	case InstrID::SUB_SI: {
-		auto rhs = _temporaryStack.pop().getValue<int64_t>();
-		auto lhs = _temporaryStack.pop().getValue<int64_t>();
-		_temporaryStack.push(lhs - rhs);
+		auto rhs = _stack.pop().getValue<int64_t>();
+		auto lhs = _stack.pop().getValue<int64_t>();
+		_stack.push(lhs - rhs);
 		++_programmCounter;
 	} break;
 	case InstrID::MUL_SI: {
-		auto rhs = _temporaryStack.pop().getValue<int64_t>();
-		auto lhs = _temporaryStack.pop().getValue<int64_t>();
-		_temporaryStack.push(lhs * rhs);
+		auto rhs = _stack.pop().getValue<int64_t>();
+		auto lhs = _stack.pop().getValue<int64_t>();
+		_stack.push(lhs * rhs);
 		++_programmCounter;
 	} break;
 	case InstrID::DIV_SI: {
-		auto rhs = _temporaryStack.pop().getValue<int64_t>();
-		auto lhs = _temporaryStack.pop().getValue<int64_t>();
-		_temporaryStack.push(lhs / rhs);
+		auto rhs = _stack.pop().getValue<int64_t>();
+		auto lhs = _stack.pop().getValue<int64_t>();
+		_stack.push(lhs / rhs);
 		++_programmCounter;
 	} break;
 	case InstrID::REM_SI: {
-		auto rhs = _temporaryStack.pop().getValue<int64_t>();
-		auto lhs = _temporaryStack.pop().getValue<int64_t>();
-		_temporaryStack.push(lhs % rhs);
+		auto rhs = _stack.pop().getValue<int64_t>();
+		auto lhs = _stack.pop().getValue<int64_t>();
+		_stack.push(lhs % rhs);
 		++_programmCounter;
 	} break;
 	case InstrID::NEG_SI: {
-		auto rhs = _temporaryStack.pop().getValue<int64_t>();
-		_temporaryStack.push(-rhs);
+		auto rhs = _stack.pop().getValue<int64_t>();
+		_stack.push(-rhs);
 		++_programmCounter;
 	} break;
 	case InstrID::SHR_SI: {
-		auto rhs = _temporaryStack.pop().getValue<int64_t>();
-		auto lhs = _temporaryStack.pop().getValue<int64_t>();
-		_temporaryStack.push(lhs >> rhs);
+		auto rhs = _stack.pop().getValue<int64_t>();
+		auto lhs = _stack.pop().getValue<int64_t>();
+		_stack.push(lhs >> rhs);
 		++_programmCounter;
 	} break;
 	case InstrID::SHL: {
-		auto rhs = _temporaryStack.pop().getValue<int64_t>();
-		auto lhs = _temporaryStack.pop().getValue<int64_t>();
-		_temporaryStack.push(lhs << rhs);
+		auto rhs = _stack.pop().getValue<int64_t>();
+		auto lhs = _stack.pop().getValue<int64_t>();
+		_stack.push(lhs << rhs);
 		++_programmCounter;
 	} break;
 	case InstrID::AND: {
-		auto rhs = _temporaryStack.pop().getValue<int64_t>();
-		auto lhs = _temporaryStack.pop().getValue<int64_t>();
-		_temporaryStack.push(lhs & rhs);
+		auto rhs = _stack.pop().getValue<int64_t>();
+		auto lhs = _stack.pop().getValue<int64_t>();
+		_stack.push(lhs & rhs);
 		++_programmCounter;
 	} break;
 	case InstrID::OR: {
-		auto rhs = _temporaryStack.pop().getValue<int64_t>();
-		auto lhs = _temporaryStack.pop().getValue<int64_t>();
-		_temporaryStack.push(lhs | rhs);
+		auto rhs = _stack.pop().getValue<int64_t>();
+		auto lhs = _stack.pop().getValue<int64_t>();
+		_stack.push(lhs | rhs);
 		++_programmCounter;
 	} break;
 	case InstrID::XOR: {
-		auto rhs = _temporaryStack.pop().getValue<int64_t>();
-		auto lhs = _temporaryStack.pop().getValue<int64_t>();
-		_temporaryStack.push(lhs ^ rhs);
+		auto rhs = _stack.pop().getValue<int64_t>();
+		auto lhs = _stack.pop().getValue<int64_t>();
+		_stack.push(lhs ^ rhs);
 		++_programmCounter;
 	} break;
 	case InstrID::NOT: {
-		auto rhs = _temporaryStack.pop().getValue<int64_t>();
-		_temporaryStack.push(~rhs);
+		auto rhs = _stack.pop().getValue<int64_t>();
+		_stack.push(~rhs);
 		++_programmCounter;
 	} break;
 
 
 
 	case InstrID::IF_Z: {
-		if (_temporaryStack.pop().getValue<int64_t>()) {
+		if (_stack.pop().getValue<int64_t>()) {
 			_programmCounter += 2;
 		} else {
 			++_programmCounter;
 		}
 	} break;
 	case InstrID::IF_NZ: {
-		if (_temporaryStack.pop().getValue<int64_t>()) {
+		if (_stack.pop().getValue<int64_t>()) {
 			++_programmCounter;
 		} else {
 			_programmCounter += 2;
@@ -245,11 +299,39 @@ void InstructionExecuter::executeInstruction()
 	} break;
 	case InstrID::JMP_DA: {
 		_funcCallCounter++;
-		_programmCounter = _temporaryStack.pop().getValue<int64_t>();
+		_programmCounter = _stack.pop().getValue<int64_t>();
 	} break;
 
 	default:
 		throw ExecutionError("unknown Instruction ID", instruction);
+	}
+
+	if (_printStacklayout) {
+		std::stringstream s;
+		s << std::setfill(' ') << std::setw(3);
+		s << oldPC << "  ";
+
+		auto indentSize = 2 * _programmCounterStack.size();
+
+		auto idStr = cat::String(indentSize, ' ');
+		idStr += cat::String(cat::SW() << instruction.id());
+
+		s << idStr;
+		s << cat::String(std::max(1ll, 30 - int64_t(idStr.length())), ' ');
+		s << " | ";
+
+		s << std::setfill(' ') << std::setw(3);
+		foreach_c(value, _stack) {
+			cat::OW(s) << value << " | ";
+		}
+//		s << std::endl;
+//		s << cat::String(35, ' ');
+//		s << " | ";
+//		foreach_c(value, _globals.get()) {
+//			s << value << " | ";
+//		}
+		s.flush();
+		std::cout << s.str() << std::endl;
 	}
 }
 
@@ -259,6 +341,11 @@ void InstructionExecuter::run()
 	while (_programmCounter < _instructions.size()) {
 		executeInstruction();
 	}
+}
+
+ExecutionError InstructionExecuter::nullPointerException(const Instruction& instruction)
+{
+	return  ExecutionError("NullReferenceException!", instruction);
 }
 
 }

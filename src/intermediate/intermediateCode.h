@@ -1,9 +1,11 @@
 #ifndef INTERMEDIATECODE_H
 #define INTERMEDIATECODE_H
 
+#include "../compiler/compileError.h"
 #include "language/position.h"
 #include "util/instructionID.h"
 #include "util/types.h"
+
 #include "cat_string.h"
 #include "cat_variant.h"
 
@@ -16,7 +18,7 @@ class WriterObjectABC;
 
 namespace ngpl::intermediate {
 
-PTRS_FOR_CLASS(IntermediateInstruction)
+PTRS_FOR_CLASS(IntermediateInstruction);
 class IntermediateInstruction: public IIntermediateCodePrintable
 {
 protected:
@@ -27,33 +29,43 @@ public:
 	virtual bool hasSideEffect() const = 0;
 
 };
+cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const IntermediateInstruction& v);
 
 
 
-PTRS_FOR_CLASS(IntermediateCodeContainer)
+PTRS_FOR_CLASS(IntermediateCodeContainer);
 class IntermediateCodeContainer: public IIntermediateCodePrintable {
 public:
-	std::vector<IntermediateInstructionPtr> instructions;
 	// InstructionsContainer
 	cat::WriterObjectABC& print(cat::WriterObjectABC& s) const override;
 	bool hasSideEffect() const;
 
 	bool isEmpty() const;
+
+	void addError(CompileErrorPtr&& error);
+	const std::vector<CompileErrorPtr>& errors() const { return _compileErrors; }
+	bool isBad() const { return not _compileErrors.empty(); }
+
+protected:
+	void printErrorList(cat::WriterObjectABC& s) const;
+
+public:
+	std::vector<IntermediateInstructionPtr> instructions;
+
+private:
+	std::vector<CompileErrorPtr> _compileErrors;
 };
 
-using SimpleInstructionData = cat::Variant<None_, cat::String, int64_t, const void*>;
 
-PTRS_FOR_CLASS(IntermediateSimpleInstruction)
+PTRS_FOR_CLASS(IntermediateSimpleInstruction);
 class IntermediateSimpleInstruction: public IntermediateInstruction {
 public:
-	IntermediateSimpleInstruction(
-		InstructionID id,
-		const SimpleInstructionData& data,
+	IntermediateSimpleInstruction(InstructionID id,
+		const InstructionData& data,
 		const Position& pos
 	);
-
 	InstructionID id() const { return _id; }
-	const SimpleInstructionData& data() const { return _data; }
+	const InstructionData& data() const { return _data; }
 	const Position& pos() const override final { return _pos; }
 	bool hasSideEffect() const override final;
 
@@ -64,12 +76,13 @@ protected:
 	InstructionID _id;
 	// cat::String holds the name of a variable.
 	// void* is a non-owning ptr to a ngpl::Function object.
-	SimpleInstructionData _data;
+	InstructionData _data;
 	Position _pos;
 
 	friend class Instructions;
 };
 cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const IntermediateSimpleInstruction& v);
+
 
 class Instructions {
 private:

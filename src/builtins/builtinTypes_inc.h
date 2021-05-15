@@ -14,6 +14,7 @@
 #endif
 
 BUILTIN_TYPE_FACTORY(0, "None",     NONE    )
+BUILTIN_TYPE_FACTORY(0, "Any",      ANY     )
 
 BUILTIN_TYPE_FACTORY(1, "Bool",     BOOL    )
 

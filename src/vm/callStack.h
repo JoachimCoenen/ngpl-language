@@ -14,6 +14,10 @@ public:
 	BadStackError(const cat::String& message)
 		: Exception(message)
 	{}
+
+	virtual BadStackError* makeCopy() const override {
+		return new BadStackError(*this);
+	}
 };
 
 class StackUnderflowError: public BadStackError {
@@ -21,6 +25,10 @@ public:
 	StackUnderflowError(const cat::String& message)
 		: BadStackError("Stack Underflow: " + message)
 	{}
+
+	virtual StackUnderflowError* makeCopy() const override {
+		return new StackUnderflowError(*this);
+	}
 };
 
 class StackOverflowError: public BadStackError {
@@ -28,6 +36,10 @@ public:
 	StackOverflowError(const cat::String& message)
 		: BadStackError("Stack Overflow: " + message)
 	{}
+
+	virtual StackOverflowError* makeCopy() const override {
+		return new StackOverflowError(*this);
+	}
 };
 
 class CallStack
@@ -67,7 +79,10 @@ public:
 			throw StackUnderflowError("The last stack frame cannot be removed. Use CallStack::clear() to clear the call stack.");
 		}
 		--_top;
-		return _values.get()[_top];
+		auto result = _values.get()[_top];
+		_values.get()[_top] = None();
+		return result;
+
 	}
 
 	Value& peek() { return _values.get()[_top-1]; }

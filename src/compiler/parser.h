@@ -24,9 +24,10 @@ public:
 	DeclarationPtr tryParseDeclaration();
 	DeclarationPtr parseDeclaration();
 	FuncDeclarationPtr parseFuncDeclaration();
+	CtorDeclarationPtr parseCtorDeclaration();
+	DtorDeclarationPtr parseDtorDeclaration();
 	std::vector<ParamDeclarationPtr> parseParameters();
 	ParamDeclarationPtr parseParameter();
-	ConstDeclarationPtr parseConstDeclaration();
 	VarDeclarationPtr parseVarDeclaration();
 	TypeDeclarationPtr parseTypeDeclaration();
 	std::vector<DeclarationPtr> parseTypeBody();
@@ -48,6 +49,7 @@ public:
 	std::vector<TypeExprPtr> parseTypeArguments();
 	std::vector<ExpressionPtr> parseTuple();
 	LiteralBoolPtr parseBoolean();
+	LiteralNilPtr parseNil();
 	LiteralIntPtr parseInteger();
 	LiteralStringPtr parseString();
 
@@ -61,7 +63,7 @@ protected:
 
 	const Token& currentToken() const { return tokenizer.get(); }
 
-	bool tryAcceptToken(TokenKind kind);
+	std::optional<Token> tryAcceptToken(TokenKind kind);
 	bool tryAcceptToken(const cat::String& str);
 	bool tryAcceptAnyOfToken(const std::initializer_list<cat::String>& strs);
 

@@ -15,8 +15,23 @@ Type::Type(const cat::String& name, const cat::String& qualifier, uint64_t fixed
 	: Member(name, qualifier), _scope(nullptr), _fixedSize(fixedSize), _typeKind(typeKind), _isFinished(isFinished)
 {}
 
+bool Type::isAssignableTo(const Type& destination) const
+{
+	if (this == &destination) {
+		return true;
+	}
+	if (this->qualifier().empty() and this->name() == "Any") {
+		return true;
+	}
+	if (destination.qualifier().empty() and destination.name() == "Any") {
+		return true;
+	}
+
+	return false;
+}
+
 void Type::finish() {
-	_fixedSize = scope()->getFrameSize();
+	_fixedSize = Address(scope()->getFrameSize());
 	_isFinished = true;
 }
 
@@ -68,6 +83,7 @@ cat::WriterObjectABC& operator +=(cat::WriterObjectABC& s, const TypeKind& v) {
 		FORMAT_ENUM_VAL_CASE(TypeKind, CLASS_LIKE);
 		FORMAT_ENUM_VAL_CASE(TypeKind, COMPLEX_ENUM);
 	}
+	throw cat::Exception("TypeKind " + std::to_string(int(v)) + " not handeled!");
 }
 
 

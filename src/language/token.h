@@ -16,8 +16,10 @@ enum class TokenKind {
     SEPARATOR,
     NUMBER,
     STRING,
-    BOOLEAN,
-    COMMENT,
+	BOOLEAN,
+	NIL,
+	COMMENT,
+	EOF_TOKEN,
 };
 
 cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const TokenKind& v);
@@ -42,7 +44,7 @@ public:
 	Position pos;
 
 	bool operator == (const Token& other) const {
-	return (kind == other.kind) and (content == other.content) and (pos == other.pos);
+		return (kind == other.kind) and (content == other.content) and (pos == other.pos);
 	}
 
 };

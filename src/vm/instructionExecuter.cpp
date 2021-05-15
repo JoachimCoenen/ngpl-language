@@ -55,12 +55,12 @@ void InstructionExecuter::executeInstruction()
 	} break;
 
 	case InstrID::READ_STCK_F: {
-		Address addr = Address(_stack.size()) - data.getValue<int64_t>() - 1;
+		Address addr = StackAddr(_stack.size()) - data.getValue<StackAddr>() - 1;
 		_stack.push(_stack.at(addr));
 		++_programmCounter;
 	} break;
 	case InstrID::READ_STCK_D: {
-		Address addr = Address(_stack.size()) - data.getValue<int64_t>() - 1;
+		Address addr = StackAddr(_stack.size()) - data.getValue<StackAddr>() - 1;
 		const auto popedVal = _stack.pop().getValue<int64_t>();
 		addr -= popedVal;
 		_stack.push(_stack.at(addr));
@@ -68,21 +68,21 @@ void InstructionExecuter::executeInstruction()
 	} break;
 
 	case InstrID::WRITE_STCK_F: {
-		Address addr = Address(_stack.size()) - data.getValue<int64_t>() - 1;
+		Address addr = StackAddr(_stack.size()) - data.getValue<StackAddr>() - 1;
 		_stack.at(addr) = _stack.pop();
 		++_programmCounter;
 	} break;
 	case InstrID::WRITE_STCK_D: {
-		Address addr = Address(_stack.size()) - data.getValue<int64_t>() - 1;
+		Address addr = StackAddr(_stack.size()) - data.getValue<StackAddr>() - 1;
+		const auto delta = _stack.pop().getValue<int64_t>();
 		auto val = _stack.pop();
-		const auto popedVal = _stack.pop().getValue<int64_t>();
-		addr -= popedVal;
+		addr -= delta;
 		_stack.at(addr) = std::move(val);
 		++_programmCounter;
 	} break;
 
 	case InstrID::READ_FA: {
-		auto addr = data.getValue<int64_t>();
+		auto addr = Address(data.getValue<HeapAddr>());
 		_stack.push(_globals->at(addr));
 		++_programmCounter;
 	} break;
@@ -108,7 +108,7 @@ void InstructionExecuter::executeInstruction()
 	} break;
 
 	case InstrID::WRITE_FA: {
-		auto addr = data.getValue<int64_t>();
+		auto addr = Address(data.getValue<HeapAddr>());
 		_globals->at(addr) = _stack.pop();
 		++_programmCounter;
 	} break;
@@ -118,23 +118,23 @@ void InstructionExecuter::executeInstruction()
 //		++_programmCounter;
 //	} break;
 	case InstrID::WRITE_FR: {
+		auto reference = _stack.pop().getValue<Reference>();
 		auto val = _stack.pop();
-		auto popedVal = _stack.pop().getValue<Reference>();
-		if (popedVal.source() == nullptr) {
+		if (reference.source() == nullptr) {
 			throw nullPointerException(instruction);
 		}
 		const auto addr = data.getValue<int64_t>();
-		popedVal.at(addr) = std::move(val);
+		reference.at(addr) = std::move(val);
 		++_programmCounter;
 	} break;
 	case InstrID::WRITE_DR: {
-		auto val = _stack.pop();
-		auto popedVal1 = _stack.pop().getValue<Reference>();
-		if (popedVal1.source() == nullptr) {
+		auto reference = _stack.pop().getValue<Reference>();
+		if (reference.source() == nullptr) {
 			throw nullPointerException(instruction);
 		}
-		const auto addr = _stack.pop().getValue<int64_t>();
-		popedVal1.at(addr) = std::move(val);
+		const auto delta = _stack.pop().getValue<int64_t>();
+		auto val = _stack.pop();
+		reference.at(delta) = std::move(val);
 		++_programmCounter;
 	} break;
 
@@ -178,6 +178,13 @@ void InstructionExecuter::executeInstruction()
 	} break;
 	case InstrID::PUSH_CNTR_FR: {
 		_programmCounterStack.push(_programmCounter + data.getValue<int64_t>());
+		++_programmCounter;
+	} break;
+
+	case InstrID::HEAP_ALLOC: {
+		auto size = _stack.pop().getValue<int64_t>();
+		auto* allocated = &_heap.emplace_back(size, None());
+		_stack.push(Reference(allocated, 0));
 		++_programmCounter;
 	} break;
 

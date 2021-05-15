@@ -15,9 +15,9 @@ namespace ngpl {
 PTRS_FOR_CLASS(Scope);
 class Scope: public IIntermediateCodePrintable {
 public:
-	Scope(Address&& salt) : salt(std::move(salt)) {}
+	Scope(FrameAddr salt) : salt(salt) {}
 
-	const Address& getFrameSize() const { return salt; }
+	 FrameAddr getFrameSize() const { return FrameAddr(salt); }
 
 	std::unordered_map<cat::String, FunctionOverloads>& getFunctions() { return functions; }
 	const std::unordered_map<cat::String, FunctionOverloads>& getFunctions() const { return functions; }
@@ -30,13 +30,13 @@ public:
 	VariableCWeakPtr setVariable(const cat::String& name, VariablePtr&& variable);
 	VariableCWeakPtr addVariable(const cat::String& name, VariablePtr&& variable);
 	void addType(const cat::String& name, TypePtr&& type);
-	FunctionBaseWeakPtr addFunction(FunctionBasePtr&& function);
+	FunctionBaseWeakPtr addFunction(const cat::String& name, FunctionBasePtr&& function);
 	bool canAddFunction(const cat::String& name, const FunctionSignature& signature, cat::String& reasonOut) const;
 
 	VariableCWeakPtr tryGetVariable(const cat::String& name) const;
 
 	FunctionOverloadsCWeakPtr tryGetFunctionOverloads(const cat::String& name) const;
-	FunctionBaseCWeakPtr tryGetFunction(const cat::String& name, const CallArgTypes& argTypes) const;
+	FunctionBaseCWeakPtr tryGetFunction(const cat::String& name, const CallArgs& args) const;
 
 	TypeWeakPtr tryGetType(const cat::String& name);
 	TypeCWeakPtr tryGetType(const cat::String& name) const;
@@ -44,7 +44,7 @@ public:
 	cat::WriterObjectABC& print(cat::WriterObjectABC& s) const override final;
 
 protected:
-	Address salt;
+	FrameAddr salt;
 	tsl::ordered_map<cat::String, VariableCPtr> variables;
 	std::unordered_map<cat::String, FunctionOverloads> functions = {};
 	std::unordered_map<cat::String, TypePtr> types;

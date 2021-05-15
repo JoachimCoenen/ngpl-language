@@ -20,44 +20,85 @@
 
 namespace ngpl {
 
-PTRS_FOR_STRUCT(CallArgTypes)
-struct CallArgTypes
+PTRS_FOR_STRUCT(Argument);
+struct Argument
 {
-	cat::DynArray<TypeReference> types;
+public:
+	Argument(TypeReference&& type);
 
-	CallArgTypes(cat::DynArray<TypeReference>&& a)
-		: types(std::move(a))
-	{}
+	inline const TypeReference& type() const { return _type; }
 
 	cat::String asCodeString() const;
 	cat::String asQualifiedCodeString() const;
+
+protected:
+	TypeReference _type;
 };
 
-PTRS_FOR_STRUCT(FunctionSignature)
+
+PTRS_FOR_STRUCT(CallArgs);
+struct CallArgs
+{
+public:
+	CallArgs(cat::DynArray<Argument>&& arguments);
+
+	inline const cat::DynArray<Argument>& arguments() const { return _arguments; }
+
+	cat::String asCodeString() const;
+	cat::String asQualifiedCodeString() const;
+
+protected:
+	cat::DynArray<Argument> _arguments;
+};
+
+PTRS_FOR_STRUCT(Parameter);
+struct Parameter
+{
+public:
+	Parameter(cat::String&& name, TypeReference&& type);
+	Parameter(const cat::String& name, TypeReference&& type);
+
+	inline const cat::String& name() const { return _name; }
+	inline const TypeReference& type() const { return _type; }
+
+	uint64_t fixedSize() const;
+
+	cat::String asCodeString() const;
+	cat::String asQualifiedCodeString() const;
+
+protected:
+	cat::String _name;
+	TypeReference _type;
+};
+
+inline bool operator == (const Parameter& lhs, const Parameter& rhs) { return lhs.type() == rhs.type(); }
+inline bool operator != (const Parameter& lhs, const Parameter& rhs) { return lhs.type() != rhs.type(); }
+inline cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const Parameter& v);
+
+PTRS_FOR_STRUCT(FunctionSignature);
 struct FunctionSignature
 {
 public:
-	FunctionSignature();
 	FunctionSignature(//cat::String&& name,
-	cat::DynArray<TypeReference>&& parameterTypes,
+	cat::DynArray<Parameter>&& parameters,
 	TypeReference&& returnType
 	);
 
 	//const cat::String& name() const { return _name; }
 
-	const cat::DynArray<TypeReference>& parameterTypes() const { return _parameterTypes; }
-	uint_fast16_t parameterCount() const { return _parameterTypes.size(); }
+	const cat::DynArray<Parameter>& parameters() const { return _parameters; }
+	uint_fast16_t parameterCount() const { return _parameters.size(); }
 	const TypeReference& returnType() const { return _returnType; }
 
-	bool isCallableWith(const CallArgTypes& argTypes) const;
+	bool isCallableWith(const CallArgs& args) const;
 
-	cat::String asCodeString() const;
-	cat::String asQualifiedCodeString() const;
+	cat::String asCodeString(bool includeReturn = true) const;
+	cat::String asQualifiedCodeString(bool includeReturn = true) const;
 
 
 protected:
 	//cat::String _name;
-	cat::DynArray<TypeReference> _parameterTypes;
+	cat::DynArray<Parameter> _parameters;
 	TypeReference _returnType;
 };
 
@@ -65,7 +106,7 @@ inline bool operator == (const FunctionSignature& lhs, const FunctionSignature& 
 	return true
 		//and lhs.name() == rhs.name()
 		//and lhs.returnType() == rhs.returnType()
-		and lhs.parameterTypes() == rhs.parameterTypes();
+		and lhs.parameters() == rhs.parameters();
 }
 
 inline cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const FunctionSignature& v);
@@ -81,7 +122,7 @@ public:
 		const cat::String& name,
 		const cat::String& qualifier,
 		FunctionSignature&& signature,
-		const TypeCWeakPtr& selfType,
+		TypeCWeakPtr selfType,
 		bool hasSideEffect
 	)
 	: Member(name, qualifier),
@@ -97,12 +138,14 @@ public:
 	const TypeReference& returnType() const { return _signature.returnType(); }
 	const TypeCWeakPtr selfType() const { return _selfType; }
 	bool isMethod() const { return _selfType != nullptr; }
+	bool isCtor() const { return _name == "*ctor"; }
+	bool isDtor() const { return _name == "*dtor"; }
 	bool hasSideEffect() const { return _hasSideEffect; }
 
 	int32_t stackDelta() const;
 	int32_t argumentsStackSize() const;
 
-	bool isCallableWith(const CallArgTypes& argTypes) const;
+	bool isCallableWith(const CallArgs& args) const;
 
 	cat::String asCodeString() const override;
 	cat::String asQualifiedCodeString() const override;
@@ -124,9 +167,9 @@ public:
 	void add(FunctionBasePtr&& function);
 
 	bool canAddOverload(const FunctionSignature& signature, cat::String& reasonOut) const;
-	FunctionBaseCWeakPtr tryGetOverload(const CallArgTypes& argTypes) const;
+	FunctionBaseCWeakPtr tryGetOverload(const CallArgs& args) const;
 	//FunctionBaseCWeakPtr tryGetOverload(const FunctionSignature& signature) const;
-	bool hasOverload(const CallArgTypes& argTypes) const;
+	bool hasOverload(const CallArgs& args) const;
 
 	//ITERATORS
 	auto begin() noexcept { return std::begin(_overloads); }
@@ -191,7 +234,7 @@ public:
 	const cat::String& name,
 	const cat::String& qualifier,
 	FunctionSignature&& signature,
-	const TypeCWeakPtr& selfType,
+	TypeCWeakPtr selfType,
 	bool hasSideEffect)
 		: FunctionBase(name, qualifier, std::move(signature), selfType, hasSideEffect)
 	{}
@@ -200,7 +243,7 @@ public:
 	const cat::String& name,
 	const cat::String& qualifier,
 	FunctionSignature&& signature,
-	const TypeCWeakPtr& selfType,
+	TypeCWeakPtr selfType,
 	bool hasSideEffect,
 	Body&& body)
 		: FunctionBase(name, qualifier, std::move(signature), selfType, hasSideEffect),
@@ -227,15 +270,13 @@ protected:
 
 }
 
-template <>
-struct std::hash<ngpl::FunctionSignature> {
-	size_t operator()(const ngpl::FunctionSignature& v) const noexcept {
-	size_t result = 99;
-	//result = cat::combineHashes(result, cat::hash(v.name()));
-	//result = cat::combineHashes(result, cat::hash(v.returnType()));
-	result = cat::combineHashes(result, cat::hash(v.parameterTypes()));
-	return result;
-	}
+//template <>
+//struct std::hash<ngpl::FunctionSignature> {
+//	size_t operator()(const ngpl::FunctionSignature& v) const noexcept {
+//	size_t result = 99;
+//	result = cat::combineHashes(result, cat::hash(v.parameters()));
+//	return result;
+//	}
 
-};
+//};
 #endif // FUNCTION_H

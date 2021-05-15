@@ -50,9 +50,17 @@ public:
 	Value& operator[](Address n) const { return ((*this) + n).get(); }
 };
 
+inline bool operator == (const Reference& lhs, const Reference& rhs) {
+	return lhs.source() == rhs.source() and lhs.offset() == rhs.offset();
+}
+
+inline bool operator != (const Reference& lhs, const Reference& rhs) {
+	return not (lhs == rhs);
+}
+
 inline cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const Reference& ref) {
-	s += "Reference(";
-	s += "0x" + cat::intToHex(reinterpret_cast<uintptr_t>(ref.source().getPtr()));
+	s += "Ref(";
+	s += "0x" + cat::intToHex(reinterpret_cast<uintptr_t>(ref.source().getPtr()), 8);
 	s += ", ";
 	s += ref.offset();
 	s += ")";

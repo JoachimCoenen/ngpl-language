@@ -3,23 +3,25 @@
 
 #include "../language/position.h"
 
-#include "cat_exception.h"
+#include "compileError.h"
 
 
 namespace ngpl {
 
-class SyntaxError : public cat::Exception
+class SyntaxError : public CompileError
 {
 	// TODO: maybe add token argument to SyntaxError?
 public:
 	SyntaxError(const cat::String& message, const Position& pos);
 
-	const Position& pos() const { return _pos; }
-	const cat::String& rawMessage() const { return _rawMessage; }
+	const cat::String& rawMessage() const override { return *_rawMessage; }
+
+	virtual CompileError* makeCopy() const override {
+		return new SyntaxError(*this);
+	}
 
 protected:
-	Position _pos;
-	cat::String _rawMessage;
+	cat::SharedPtr<cat::String> _rawMessage;
 };
 
 }

@@ -249,29 +249,24 @@ public:
 		return _stack.peek();
 	}
 
-	void readValue(Address addr) {
-		const auto absoultueAddress = getAbsoluteAddress(addr);
-		_stack.push(_stack.at(absoultueAddress));
+	void readValue(StackAddr addr) {
+		_stack.push(at(addr));
 	}
 
-	void writeValue(Address addr) {
-		const auto absoultueAddress = getAbsoluteAddress(addr);
-		_stack.at(absoultueAddress) = _stack.pop();
+	void writeValue(StackAddr addr) {
+		at(addr) = _stack.pop();
 	}
 
-	void setValue(Address addr, TaggedValueWeakPtr value) {
-		const auto absoultueAddress = getAbsoluteAddress(addr);
-		_stack.at(absoultueAddress) = value;
+	void setValue(StackAddr addr, TaggedValueWeakPtr value) {
+		at(addr) = value;
 	}
 
-	TaggedValueWeakPtr getValue(Address addr) {
-		const auto absoultueAddress = getAbsoluteAddress(addr);
-		return _stack.at(absoultueAddress);
+	TaggedValueWeakPtr getValue(StackAddr addr) {
+		return at(addr);
 	}
 
 	void swap() {
-		const auto top = _stack.size() - 1;
-		std::swap(_stack.at(top), _stack.at(top-1));
+		std::swap(at(0_sa), at(1_sa));
 	}
 
 
@@ -328,13 +323,24 @@ public:
 
 	cat::Stack<TaggedValueWeakPtr>& getStack() { return _stack; }
 	const cat::Stack<TaggedValueWeakPtr>& getStack() const { return _stack; }
+	Address stackSize() const { return Address(_stack.size()); }
+
+	inline const TaggedValueWeakPtr& at(StackAddr a) const { return at(getAbsoluteAddress(a)); }
+	inline TaggedValueWeakPtr& at(StackAddr a) { return at(getAbsoluteAddress(a)); }
+
+	inline const TaggedValueWeakPtr& at(FrameAddr a) const { return _stack.at(Address(a)); }
+	inline TaggedValueWeakPtr& at(FrameAddr a) { return _stack.at(Address(a)); }
+
 	const std::vector<TaggedValueWeakPtr>& getAllInstructionsWithSideEffect() const { return _instructionsWithSideEffect; }
 
-	Address getAbsoluteAddress(Address addr) {
-		return  Address(_stack.size()) - addr - 1;
+	FrameAddr getAbsoluteAddress(StackAddr a) const {
+		return  FrameAddr(currentStackTop() - Address(a));
 	}
-	Address getRelativeAddress(Address addr) {
-		return  Address(_stack.size()) - addr - 1;
+	StackAddr getRelativeAddress(FrameAddr a) const {
+		return  StackAddr(currentStackTop() - a);
+	}
+	FrameAddr currentStackTop() const {
+		return FrameAddr(stackSize()) - 1;
 	}
 
 

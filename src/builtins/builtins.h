@@ -14,11 +14,15 @@ namespace ngpl {
 extern const Scope builtins;
 
 
-TypeReference getBuiltinTypeRef(const cat::String& name, std::vector<TypeReference>&& arguments, bool isReference);
-TypeReference getBuiltinTypeRef(const cat::String& name, std::vector<TypeReference>&& arguments);
+TypeReference getBuiltinTypeRef(const Scope& scope, const cat::String& name, std::vector<TypeReference>&& arguments, bool isReference);
+inline TypeReference getBuiltinTypeRef(const cat::String& name, std::vector<TypeReference>&& arguments, bool isReference)
+{
+	return getBuiltinTypeRef(builtins, name, std::move(arguments), isReference);
+}
+TypeReference getBuiltinTypeRef(const Scope& scope, const cat::String& name, std::vector<TypeReference>&& arguments);
 inline TypeReference getBuiltinTypeRef(const cat::String& name)
 {
-	return getBuiltinTypeRef(name, {});
+	return getBuiltinTypeRef(builtins, name, {});
 }
 
 // creates shorthands for all builtin types. i.e.:

@@ -14,9 +14,7 @@ namespace ngpl {
 
 struct Instruction: public IIntermediateCodePrintable {
 	InstructionID id() const { return _id; }
-	// cat::String holds the name of a variable.
-	// void* is a non-owning ptr to a ngpl::Function object.
-	const cat::Variant<None_, cat::String, int64_t, const void*>& data() const { return _data; }
+	const InstructionData& data() const { return _data; }
 
 	cat::WriterObjectABC& print(cat::WriterObjectABC& s) const override final;
 	cat::String toString() const;
@@ -24,7 +22,7 @@ struct Instruction: public IIntermediateCodePrintable {
 
 	const Position& pos() const { return _pos; }
 
-	Instruction(InstructionID id, const cat::Variant<None_, cat::String, int64_t, const void*>& data, const Position& pos)
+	Instruction(InstructionID id, const InstructionData& data, const Position& pos)
 		: _id(id),
 		  _data(data),
 		  _pos(pos)
@@ -33,7 +31,7 @@ protected:
 	InstructionID _id;
 	// cat::String holds the name of a variable.
 	// void* is a non-owning ptr to a ngpl::Function object.
-	cat::Variant<None_, cat::String, int64_t, const void*> _data;
+	InstructionData _data;
 	Position _pos;
 
 	friend class Instructions;

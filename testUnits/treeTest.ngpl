@@ -1,0 +1,57 @@
+unit TreeTest 
+
+func addd(v1: Int, v2: String) -> String { return String(v1) + v2 }
+addd(57, "75")
+
+type TreeNode=class{
+	var lhs:TreeNode 
+	var rhs:TreeNode 
+	var data:String
+	
+	ctor (lhs: TreeNode, rhs: TreeNode, data: String) {
+		self.lhs=lhs 
+		self.rhs=rhs 
+		self.data=data
+	}
+
+	ctor (data: String) {
+		self.lhs=nil 
+		self.rhs=nil 
+		self.data=data 
+	}
+}
+
+func toString(node:TreeNode)->String{
+	return"TreeNode("+node.data+")"
+}
+
+func format(node: TreeNode) -> String {
+	if node == nil do {
+		return "nil"
+	}
+	var result = "TreeNode("
+	result = result + "'" + node.data + "'"
+	result = result + ", "
+	result = result + format(node.lhs)
+	result = result + ", "
+	result = result + format(node.rhs)
+	result = result + ")"
+	return result
+}
+
+var node2=TreeNode("TN 2")
+var node3=TreeNode("TN 3")
+var node1=TreeNode(node2, node3, "TN 1")
+
+var node4=TreeNode("TN 4")
+print("all nodes created!")
+node1.rhs=node3
+print("simple assignment done!")
+node1.rhs.lhs=node4
+print("complex assignment done!")
+
+print(toString(node1))
+print(toString(node1.rhs.lhs))
+print(format(node1))
+print("TreeNode('TN 1', TreeNode('TN 2', nil, nil), TreeNode('TN 3', TreeNode('TN 4', nil, nil), nil))")
+

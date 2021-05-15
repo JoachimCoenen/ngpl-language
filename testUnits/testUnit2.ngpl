@@ -2,22 +2,19 @@ unit Test
 
 type Point = struct { 
 	var x: Int var y: Int var z: Int
-	/*
-	func get7() -> Int {
-		return 7
+
+	ctor (x: Int, y: Int, z: Int) {
+		self.x = x
+		self.y = y
+		self.z = z
 	}
 	
-	func get42() -> Int {
-		var result = 20 + 22
-		return result
-	}
-	*/
 	func getX() -> Int {
 		return self.x
 	}
 	
 	func str() -> String {
-		return "Pointy(" + 
+		return "Point(" + 
 			String(self.x) + ", " + 
 			String(self.y) + ", " + 
 			String(self.z) + 
@@ -45,20 +42,12 @@ type Point = struct {
 	
 }
 
-func Point(x: Int, y: Int, z: Int) -> Point {
-	var p: Point
-	p.x = x
-	p.y = y
-	p.z = z
-	return p
-}
-
-func String(p: Point) -> String {
-	return "Point(" + String(p.x) + ", " + String(p.y) + ", " + String(p.z) + ")"
+func toString(p: Point) -> String {
+	return "Pointy(" + String(p.x) + ", " + String(p.y) + ", " + String(p.z) + ")"
 }
 
 func print(p: Point) {
-	print(String(p))
+	print(toString(p))
 }
 
 func print2(p: Point) {
@@ -102,20 +91,20 @@ type Point2 = class {
 	
 }
 
-func Point2(x: Int, y: Int, z: Int) -> Point2 {
-	var p: Point2
+func makePoint2(x: Int, y: Int, z: Int) -> Point2 {
+	var p: Point2 = memalloc(3)
 	p.x = x
 	p.y = y
 	p.z = z
 	return p
 }
 
-func String(p: Point2) -> String {
+func toString(p: Point2) -> String {
 	return "Point2(" + String(p.x) + ", " + String(p.y) + ", " + String(p.z) + ")"
 }
 
 func print(p: Point2) {
-	print(String(p))
+	print(toString(p))
 }
 
 func print2(p: Point2) {
@@ -123,6 +112,7 @@ func print2(p: Point2) {
 }
 
 func main1() {
+	print("main 1")
 	var p = Point(7, 8, 9)
 	
 	print(p)
@@ -134,7 +124,8 @@ func main1() {
 }
 
 func main2() {
-	var p = Point2(7, 8, 9)
+	print("main 2")
+	var p = makePoint2(7, 8, 9)
 	
 	print(p)
 	p.rotate()

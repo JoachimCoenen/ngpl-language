@@ -18,6 +18,10 @@ public:
 	BadStackError(const cat::String& message)
 		: Exception(message)
 	{}
+
+	virtual BadStackError* makeCopy() const override {
+		return new BadStackError(*this);
+	}
 };
 
 class CallStack

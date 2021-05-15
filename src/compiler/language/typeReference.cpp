@@ -5,15 +5,35 @@
 
 namespace ngpl {
 
-TypeReference::TypeReference(TypeCWeakPtr baseType, std::vector<TypeReference>&& arguments, bool isReference)
+TypeReference::TypeReference(TypeCWeakPtr baseType, std::vector<TypeReference>&& arguments, bool isPointer)
 	: _baseType(std::move(baseType)),
 	  _arguments(std::move(arguments)),
-	  _isReference(isReference)
+	  _isPointer(isPointer)
 {}
+
+bool TypeReference::isAssignableTo(const TypeReference& destination) const
+{
+	if (*this == destination) {
+		return true;
+	}
+
+	if (this->isPointer() != destination.isPointer()) {
+		return false;
+	}
+
+	if (not this->baseType()->isAssignableTo(*destination.baseType())) {
+		return false;
+	}
+
+	if (this->arguments() != destination.arguments()) {
+		return false;
+	}
+	return true;
+}
 
 uint64_t TypeReference::fixedSize() const
 {
-	if (isReference()) {
+	if (isPointer()) {
 		return 1;
 	} else {
 		return baseType()->fixedSize();
@@ -27,7 +47,7 @@ cat::String TypeReference::asCodeString() const
 	if (isGeneric()) {
 		result << "<" << cat::range(arguments()).map(LAMBDA(t){ return t.asCodeString(); }).join(", ") << ">";
 	}
-	if (isReference()) {
+	if (isPointer()) {
 		result << "&";
 	}
 	return result;
@@ -40,16 +60,19 @@ cat::String TypeReference::asQualifiedCodeString() const
 	if (isGeneric()) {
 		result << "<" << cat::range(arguments()).map(LAMBDA(t){ return t.asQualifiedCodeString(); }).join(", ") << ">";
 	}
-	if (isReference()) {
+	if (isPointer()) {
 		result << "&";
 	}
 	return result;
 }
 
 bool operator ==(const TypeReference& lhs, const TypeReference& rhs) {
-	return lhs.baseType() == rhs.baseType() and
-			lhs.arguments() == rhs.arguments() and
-			lhs.isReference() == rhs.isReference();
+	const bool baseTypeEquals = lhs.baseType() == rhs.baseType();
+	const bool argumentsEqual = lhs.arguments() == rhs.arguments();
+	const bool isPointerEquals = lhs.isPointer() == rhs.isPointer();
+	return baseTypeEquals and
+			argumentsEqual and
+			isPointerEquals;
 }
 
 cat::WriterObjectABC& operator +=(cat::WriterObjectABC& s, const TypeReference& v)
@@ -60,7 +83,7 @@ cat::WriterObjectABC& operator +=(cat::WriterObjectABC& s, const TypeReference& 
 					s << "<\"" << v->asQualifiedCodeString() << "\">";
 				}),
 				MEMBER_PAIR_GET(v, arguments),
-				MEMBER_PAIR_GET(v, isReference)
+				MEMBER_PAIR_GET(v, isPointer)
 				);
 	formatTupleLike2(s, tuple, {"(", ")"}, cat::_formatFuncKwArg, true);
 	return s;

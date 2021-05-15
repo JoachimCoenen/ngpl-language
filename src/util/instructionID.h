@@ -8,9 +8,6 @@ class WriterObjectABC;
 
 namespace ngpl {
 
-struct None_ {};
-cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const None_&);
-
 #define INSTRUCTION_FACTORY0(instrName, stackDelta, hasSideEffect, funcName) instrName,
 #define INSTRUCTION_FACTORY1(instrName, stackDelta, hasSideEffect, funcName, argType, arg) instrName,
 enum class InstructionID {

@@ -11,9 +11,9 @@ namespace ngpl {  // Lexing
 
 void Tokenizer::advance()
 {
-	skipWhitespacesAndCommentsIfAny();
 
-	if (this->pos.index() == length()) {
+	if (this->index() == length()) {
+		this->current = Token(TokenKind::EOF_TOKEN, "", currentTokenEndPos);
 		this->pos.addvanceChar();
 		return;
 	}
@@ -33,6 +33,8 @@ void Tokenizer::advance()
 	} else {
 		throw SyntaxError(cat::SW() << "Stray '" << cat::String()+getChar() << "' im program.", pos.get());
 	}
+	currentTokenEndPos = pos.get();
+	skipWhitespacesAndCommentsIfAny();
 }
 
 void Tokenizer::readIdentifierOrKeyword()
@@ -42,7 +44,7 @@ void Tokenizer::readIdentifierOrKeyword()
 
 	do {
 		pos.addvanceChar();
-	} while (not isEnd() and isIdentifierOrKeywordInnerChar(getChar()) );
+	} while (not isPastLastChar() and isIdentifierOrKeywordInnerChar(getChar()) );
 
 	cat::String content = src.substr(start.index(), (pos - start).index());
 	if (isKeyword(content)) {
@@ -51,6 +53,8 @@ void Tokenizer::readIdentifierOrKeyword()
 		this->current = Token(TokenKind::OPERATOR, content, start);
 	} else if (isBoolen(content)) {
 		this->current = Token(TokenKind::BOOLEAN, content, start);
+	} else if (isNil(content)) {
+		this->current = Token(TokenKind::NIL, content, start);
 	} else {
 		this->current = Token(TokenKind::IDENTIFIER, content, start);
 	}
@@ -63,9 +67,9 @@ void Tokenizer::readNumber()
 
 	do {
 		pos.addvanceChar();
-	} while (not isEnd() and isDecimal(getChar()));
+	} while (not isPastLastChar() and isDecimal(getChar()));
 
-	if (not isEnd() and isLetter(getChar())) {
+	if (not isPastLastChar() and isLetter(getChar())) {
 		// we've got a Lexing error:
 		throw (SyntaxError("Integer contains invalid character(s).", pos.get()));
 	}
@@ -78,13 +82,13 @@ void Tokenizer::readString()
 {
 	pos.addvanceChar();
 	const auto start = pos.get();
-	while (not isEnd() and not (getChar() == '"')) {
+	while (not isPastLastChar() and not (getChar() == '"')) {
 		pos.addvanceChar();
 	} ;
 
 	cat::String content = src.substr(start.index(), (pos - start).index());
 
-	if (not isEnd()) {
+	if (not isPastLastChar()) {
 		pos.addvanceChar();
 	} else {
 		// we've got a Lexing error:
@@ -108,12 +112,12 @@ void Tokenizer::readOperator()
 	char c = getChar();
 	cat::String content = cat::String() + c;
 	pos.addvanceChar();
-	if (cat::isAnyOf(c, '>', '<', '=', '!') and not isEnd() and getChar() == '=') {
+	if (cat::isAnyOf(c, '>', '<', '=', '!') and not isPastLastChar() and getChar() == '=') {
 		content += '=';
 		pos.addvanceChar();
 	}
 
-	if (cat::isAnyOf(c, '-') and not isEnd() and getChar() == '>') {
+	if (cat::isAnyOf(c, '-') and not isPastLastChar() and getChar() == '>') {
 		content += '>';
 		pos.addvanceChar();
 		this->current = Token(TokenKind::SEPARATOR, content, start);
@@ -124,11 +128,11 @@ void Tokenizer::readOperator()
 
 void Tokenizer::skipWhitespacesAndCommentsIfAny()
 {
-	while (not isEnd()) {
+	while (not isPastLastChar()) {
 		if (isSpace(getChar())) {
 			// white space, line feed, carriage return, etc :
 			skipWhitespaces();
-		} else if (not isEnd() and getChar() == '/' and not isNextEnd()){
+		} else if (not isNextPastLastChar() and getChar() == '/'){
 			// check for comment:
 			if (getNextChar() == '/') {
 				// line comment:
@@ -148,9 +152,9 @@ void Tokenizer::skipWhitespacesAndCommentsIfAny()
 
 bool Tokenizer::handleSingleNewLineIfAny()
 {
-	NGPL_ASSERT(not isEnd());
+	NGPL_ASSERT(not isPastLastChar());
 	if (getChar() == '\r') {
-		if (not isNextEnd() and getNextChar() == '\n'){
+		if (not isNextPastLastChar() and getNextChar() == '\n'){
 			pos.addvanceNewLine(2);
 		} else {
 			pos.addvanceNewLine(1);
@@ -166,21 +170,21 @@ bool Tokenizer::handleSingleNewLineIfAny()
 
 void Tokenizer::skipWhitespaces()
 {
-	NGPL_ASSERT(not isEnd() and isSpace(getChar()));
+	NGPL_ASSERT(not isPastLastChar() and isSpace(getChar()));
 	do {
 		if (not handleSingleNewLineIfAny()) {
 			// it is a normal space, tab, \f, ...
 			pos.addvanceChar();
 		}
-	} while (not isEnd() and isSpace(getChar()));
+	} while (not isPastLastChar() and isSpace(getChar()));
 }
 
 void Tokenizer::skipLineComment()
 {
-	NGPL_ASSERT(not isEnd() and getChar() == '/' and not isNextEnd() and getNextChar() == '/');
+	NGPL_ASSERT(not isNextPastLastChar() and getChar() == '/' and getNextChar() == '/');
 	pos.addvanceChar();
 	pos.addvanceChar();
-	while (not isEnd()) {
+	while (not isPastLastChar()) {
 
 		if (handleSingleNewLineIfAny()) {
 			return;
@@ -194,21 +198,21 @@ void Tokenizer::skipLineComment()
 
 void Tokenizer::skipBlockComment()
 {
-	NGPL_ASSERT(not isEnd() and getChar() == '/' and not isNextEnd() and getNextChar() == '*');
+	NGPL_ASSERT(not isNextPastLastChar() and getChar() == '/' and getNextChar() == '*');
 	pos.addvanceChar();
 	pos.addvanceChar();
-	while (not isEnd()) {
+	while (not isPastLastChar()) {
 		if (not handleSingleNewLineIfAny()) {
 			const auto c = getChar();
 			if (c == '*') {
-				if (not isNextEnd() and getNextChar() == '/') {
+				if (not isNextPastLastChar() and getNextChar() == '/') {
 					pos.addvanceChar();
 					pos.addvanceChar();
 					break;
 				}
 			} else if (c == '/') {
 				// maybe nested block comment?
-				if (not isNextEnd() and getNextChar() == '*') {
+				if (not isNextPastLastChar() and getNextChar() == '*') {
 					skipBlockComment();
 					continue;
 				}
@@ -307,6 +311,12 @@ bool Tokenizer::isKeyword(const cat::String& s) const
 bool Tokenizer::isBoolen(const cat::String& s) const
 {
 	return cat::isAnyOf(s, "true", "false");
+}
+
+
+bool Tokenizer::isNil(const cat::String& s) const
+{
+	return s == "nil";
 }
 
 }

@@ -80,6 +80,12 @@ generateAllFibsUpToX()
 //*
 type Point = struct { 
 	var x: Int var y: Int var z: Int 
+
+	ctor (x: Int, y: Int, z: Int) {
+		self.x = x
+		self.y = y
+		self.z = z
+	}
 	
 	func str() -> String {
 		return "Pointy(" + 
@@ -110,26 +116,20 @@ type Point = struct {
 	
 }
 
-func Point(x: Int, y: Int, z: Int) -> Point {
-	var p: Point
-	p.x = x
-	p.y = y
-	p.z = z
-	return p
-}
 
 
-func String(p: Point) -> String {
+
+func toString(p: Point) -> String {
 	return "Point(" + String(p.x) + ", " + String(p.y) + ", " + String(p.z) + ")"
 }
 
 func print(p: Point) {
-	print(String(p))
+	print(toString(p))
 }
 
 
 var point: Point = Point(8, 7, 9)
-
+/*
 print(point.str())
 print(point)
 
@@ -160,7 +160,7 @@ print(point3)
 point3.translateZ(7)
 print("point3 translated Z:")
 print(point3)
-
+*/
 print("")
 //*/
 
@@ -174,29 +174,31 @@ func doSth() -> Int {
 }
 
 
-type Rect = struct {
+type Rect = class {
 	var topLeft: Point
 	var bottomRight: Point
 	
+	ctor(topLeft: Point, bottomRight: Point) {
+		self.bottomRight = bottomRight
+		self.topLeft = topLeft
+	}
+	
 	func str() -> String {
 		//return self.bottomRight.str()
-		
-		return "Rect(" + 
-			self.topLeft.str() + ", " + 
-			self.bottomRight.str() + 
-		")"
-		
+		let br = self.bottomRight.str()
+		let tl = self.topLeft.str()
+		return "Rect(" + tl + ", " + br + ")"
+	}
+	
+	func str2() -> String {
+		//return self.bottomRight.str()
+		let tl = toString(self.topLeft)
+		let br = toString(self.bottomRight)
+		return "Rect(" + tl + ", " + br + ")"
 	}
 }
 
 
-
-func Rect(topLeft: Point, bottomRight: Point) -> Rect {
-	var p: Rect
-	p.topLeft = topLeft
-	p.bottomRight = bottomRight
-	return p
-}
 
 print("")
 print("++++ Rect ++++")
@@ -205,4 +207,12 @@ var rect: Rect = Rect(point, Point(10, 11, 12))
 
 print(rect.str())
 print("++++ END ++++")
+
+var rs = rect.str()
+var rs2 = rect.str2()
+
+print(rs)
+print(rs2)
+print("Rect(Pointy(8, 7, 9), Pointy(10, 11, 12))")
+print("++++ END2 ++++")
 // */

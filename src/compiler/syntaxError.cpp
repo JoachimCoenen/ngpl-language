@@ -7,9 +7,8 @@ using cat::SW;
 namespace ngpl {
 
 SyntaxError::SyntaxError(const cat::String& message, const Position& pos)
-	: Exception(SW() << message << " at line " << pos.line()+1 << ", col " << pos.column()+1 << "."),
-	  _pos(pos),
-	  _rawMessage(message)
+	: CompileError(pos),
+	  _rawMessage({}, cat::String(message))
 {}
 
 

@@ -15,9 +15,9 @@ public:
 	Position(uint64_t line, uint64_t column, uint64_t index)
 	: _line(line), _column(column), _index(index) {}
 
-	const uint64_t& line() const { return _line; }
-	const uint64_t& column() const { return _column; }
-	const uint64_t& index() const { return _index; }
+	inline const uint64_t& line() const { return _line; }
+	inline const uint64_t& column() const { return _column; }
+	inline const uint64_t& index() const { return _index; }
 protected:
 	uint64_t _line = 0;
 	uint64_t _column = 0;

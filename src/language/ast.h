@@ -61,7 +61,8 @@ namespace ngpl {
 		return s;								\
 	}
 
-STRUCT_WITH_PTR(Node) : public ngpl::IFormattable {
+PTRS_FOR_STRUCT(Node);
+struct Node : public ngpl::IFormattable {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple();
 	}
@@ -78,7 +79,8 @@ STRUCT_WITH_PTR(Node) : public ngpl::IFormattable {
 };
 
 
-STRUCT_WITH_PTR(Statement) : public Node {
+PTRS_FOR_STRUCT(Statement);
+struct Statement : public Node {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple();
 	}
@@ -90,7 +92,8 @@ STRUCT_WITH_PTR(Statement) : public Node {
 };
 
 
-STRUCT_WITH_PTR(Root) : public Node {
+PTRS_FOR_STRUCT(Root);
+struct Root : public Node {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, statements)
@@ -107,7 +110,8 @@ STRUCT_WITH_PTR(Root) : public Node {
 };
 
 
-STRUCT_WITH_PTR(Expression) : public Statement {
+PTRS_FOR_STRUCT(Expression);
+struct Expression : public Statement {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple();
 	}
@@ -118,7 +122,8 @@ STRUCT_WITH_PTR(Expression) : public Statement {
 };
 
 
-STRUCT_WITH_PTR(Literal) : public Expression {
+PTRS_FOR_STRUCT(Literal);
+struct Literal : public Expression {
 	NON_COPY_FORMATTABLE(Literal, Expression);
 
 	Literal(const Position& pos) 
@@ -129,7 +134,8 @@ STRUCT_WITH_PTR(Literal) : public Expression {
 };
 
 
-STRUCT_WITH_PTR(LiteralBool) : public Literal {
+PTRS_FOR_STRUCT(LiteralBool);
+struct LiteralBool : public Literal {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, value)
@@ -148,7 +154,8 @@ STRUCT_WITH_PTR(LiteralBool) : public Literal {
 };
 
 
-STRUCT_WITH_PTR(LiteralInt) : public Literal {
+PTRS_FOR_STRUCT(LiteralInt);
+struct LiteralInt : public Literal {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, value)
@@ -167,7 +174,8 @@ STRUCT_WITH_PTR(LiteralInt) : public Literal {
 };
 
 
-STRUCT_WITH_PTR(LiteralString) : public Literal {
+PTRS_FOR_STRUCT(LiteralString);
+struct LiteralString : public Literal {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, value)
@@ -189,7 +197,22 @@ STRUCT_WITH_PTR(LiteralString) : public Literal {
 };
 
 
-STRUCT_WITH_PTR(VariableReference) : public Expression {
+PTRS_FOR_STRUCT(LiteralNil);
+struct LiteralNil : public Literal {
+	auto _getLocalMembersTuple() const {
+		return cat::makeCRefTuple(
+		);
+	}
+	NON_COPY_FORMATTABLE(LiteralNil, Literal);
+
+	LiteralNil(const Position& pos)
+		: Literal(pos)
+	{}
+};
+
+
+PTRS_FOR_STRUCT(VariableReference);
+struct VariableReference : public Expression {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, name)
@@ -203,7 +226,8 @@ STRUCT_WITH_PTR(VariableReference) : public Expression {
 };
 
 
-STRUCT_WITH_PTR(MemberAccess) : public VariableReference {
+PTRS_FOR_STRUCT(MemberAccess);
+struct MemberAccess : public VariableReference {
    auto _getLocalMembersTuple() const {
 	   return cat::makeCRefTuple(
 		   // MEMBER_PAIR(*this, name)
@@ -217,7 +241,8 @@ STRUCT_WITH_PTR(MemberAccess) : public VariableReference {
 };
 
 
-STRUCT_WITH_PTR(FunctionCall) : public Expression {
+PTRS_FOR_STRUCT(FunctionCall);
+struct FunctionCall : public Expression {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, name),
@@ -235,7 +260,8 @@ STRUCT_WITH_PTR(FunctionCall) : public Expression {
 };
 
 
-STRUCT_WITH_PTR(UnaryOperatorCall) : public Expression {
+PTRS_FOR_STRUCT(UnaryOperatorCall);
+struct UnaryOperatorCall : public Expression {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, name),
@@ -251,7 +277,8 @@ STRUCT_WITH_PTR(UnaryOperatorCall) : public Expression {
 };
 
 
-STRUCT_WITH_PTR(BinaryOperatorCall) : public Expression {
+PTRS_FOR_STRUCT(BinaryOperatorCall);
+struct BinaryOperatorCall : public Expression {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, name),
@@ -272,25 +299,27 @@ STRUCT_WITH_PTR(BinaryOperatorCall) : public Expression {
 };
 
 
-STRUCT_WITH_PTR(TypeExpr) : public Node {
+PTRS_FOR_STRUCT(TypeExpr);
+struct TypeExpr : public Node {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, name),
-			MEMBER_PAIR(*this, isReference),
+			MEMBER_PAIR(*this, isPointer),
 			MEMBER_PAIR(*this, arguments)
 		);
 	}
 	NON_COPY_FORMATTABLE(TypeExpr, Node);
-	TypeExpr(cat::String&& name, bool isReference, std::vector<TypeExprPtr>&& arguments, const Position& pos)
-		: Node(pos), name(std::move(name)), isReference(isReference), arguments(std::move(arguments)) { };
+	TypeExpr(cat::String&& name, bool isPointer, std::vector<TypeExprPtr>&& arguments, const Position& pos)
+		: Node(pos), name(std::move(name)), isPointer(isPointer), arguments(std::move(arguments)) { };
 
 	cat::String name;
-	bool isReference;
+	bool isPointer;
 	std::vector<TypeExprPtr> arguments;
 };
 
 
-STRUCT_WITH_PTR(Declaration) : public Statement {
+PTRS_FOR_STRUCT(Declaration);
+struct Declaration : public Statement {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, name)
@@ -304,34 +333,28 @@ STRUCT_WITH_PTR(Declaration) : public Statement {
 };
 
 
-STRUCT_WITH_PTR(VarDeclaration) : public Declaration {
+PTRS_FOR_STRUCT(VarDeclaration);
+struct VarDeclaration : public Declaration {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, type),
-			MEMBER_PAIR(*this, initExpr)
+			MEMBER_PAIR(*this, initExpr),
+			MEMBER_PAIR(*this, isConst)
 		);
 	}
 	NON_COPY_FORMATTABLE(VarDeclaration, Declaration);
-	VarDeclaration(cat::String&& name, TypeExprPtr&& type, ExpressionPtr&& initExpr, const Position& pos)
-		: Declaration(std::move(name), pos), type(std::move(type)), initExpr(std::move(initExpr)) { };
+	VarDeclaration(cat::String&& name, TypeExprPtr&& type, ExpressionPtr&& initExpr, bool isConst, const Position& pos)
+		: Declaration(std::move(name), pos), type(std::move(type)), initExpr(std::move(initExpr)), isConst(isConst) { };
 
 	TypeExprPtr type;
 	ExpressionPtr initExpr;
+	bool isConst;
 
 };
 
 
-STRUCT_WITH_PTR(ConstDeclaration) : public VarDeclaration {
-	auto _getLocalMembersTuple() const {
-		return cat::makeCRefTuple();
-	}
-	NON_COPY_FORMATTABLE(ConstDeclaration, VarDeclaration);
-	ConstDeclaration(cat::String&& name, TypeExprPtr&& type, ExpressionPtr&& initExpr, const Position& pos)
-		: VarDeclaration(std::move(name), std::move(type), std::move(initExpr), pos) { };
-};
-
-
-STRUCT_WITH_PTR(Assignment) : public Statement {
+PTRS_FOR_STRUCT(Assignment);
+struct Assignment : public Statement {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, variable),
@@ -347,7 +370,8 @@ STRUCT_WITH_PTR(Assignment) : public Statement {
 };
 
 
-STRUCT_WITH_PTR(Block) : public Node {
+PTRS_FOR_STRUCT(Block);
+struct Block : public Node {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, statements)
@@ -363,7 +387,8 @@ STRUCT_WITH_PTR(Block) : public Node {
 };
 
 
-STRUCT_WITH_PTR(IfControl) : public Statement {
+PTRS_FOR_STRUCT(IfControl);
+struct IfControl : public Statement {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, condition),
@@ -384,7 +409,8 @@ STRUCT_WITH_PTR(IfControl) : public Statement {
 };
 
 
-STRUCT_WITH_PTR(WhileControl) : public Statement {
+PTRS_FOR_STRUCT(WhileControl);
+struct WhileControl : public Statement {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, condition),
@@ -403,7 +429,8 @@ STRUCT_WITH_PTR(WhileControl) : public Statement {
 };
 
 
-STRUCT_WITH_PTR(ReturnStatement) : public Statement {
+PTRS_FOR_STRUCT(ReturnStatement);
+struct ReturnStatement : public Statement {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, expr)
@@ -417,7 +444,8 @@ STRUCT_WITH_PTR(ReturnStatement) : public Statement {
 };
 
 
-STRUCT_WITH_PTR(ParamDeclaration) : public Node {
+PTRS_FOR_STRUCT(ParamDeclaration);
+struct ParamDeclaration : public Node {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, name),
@@ -434,7 +462,8 @@ STRUCT_WITH_PTR(ParamDeclaration) : public Node {
 };
 
 
-STRUCT_WITH_PTR(FuncDeclaration) : public Declaration {
+PTRS_FOR_STRUCT(FuncDeclaration);
+struct FuncDeclaration : public Declaration {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, returnType),
@@ -455,8 +484,43 @@ STRUCT_WITH_PTR(FuncDeclaration) : public Declaration {
 	BlockPtr block;
 };
 
+PTRS_FOR_STRUCT(CtorDeclaration);
+struct CtorDeclaration : public Declaration {
+	auto _getLocalMembersTuple() const {
+		return cat::makeCRefTuple(
+			MEMBER_PAIR(*this, parameters),
+			MEMBER_PAIR(*this, block)
+		);
+	}
+	NON_COPY_FORMATTABLE(CtorDeclaration, Declaration);
+	CtorDeclaration(cat::String&& name, std::vector<ParamDeclarationPtr>&& params, BlockPtr&& block, const Position& pos)
+		: Declaration(std::move(name), pos),
+		  parameters(std::move(params)),
+		  block(std::move(block))
+	{ };
 
-STRUCT_WITH_PTR(TypeDeclaration) : public Declaration {
+	std::vector<ParamDeclarationPtr> parameters;
+	BlockPtr block;
+};
+
+PTRS_FOR_STRUCT(DtorDeclaration);
+struct DtorDeclaration : public Declaration {
+	auto _getLocalMembersTuple() const {
+		return cat::makeCRefTuple(
+			MEMBER_PAIR(*this, block)
+		);
+	}
+	NON_COPY_FORMATTABLE(DtorDeclaration, Declaration);
+	DtorDeclaration(BlockPtr&& block, const Position& pos)
+		: Declaration("", pos),
+		  block(std::move(block))
+	{ };
+
+	BlockPtr block;
+};
+
+PTRS_FOR_STRUCT(TypeDeclaration);
+struct TypeDeclaration : public Declaration {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, name)
@@ -472,7 +536,8 @@ STRUCT_WITH_PTR(TypeDeclaration) : public Declaration {
 };
 
 
-STRUCT_WITH_PTR(StructDeclaration) : public TypeDeclaration {
+PTRS_FOR_STRUCT(StructDeclaration);
+struct StructDeclaration : public TypeDeclaration {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple();
 	}
@@ -483,7 +548,8 @@ STRUCT_WITH_PTR(StructDeclaration) : public TypeDeclaration {
 };
 
 
-STRUCT_WITH_PTR(ClassDeclaration) : public TypeDeclaration {
+PTRS_FOR_STRUCT(ClassDeclaration);
+struct ClassDeclaration : public TypeDeclaration {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple();
 	}
@@ -495,7 +561,8 @@ STRUCT_WITH_PTR(ClassDeclaration) : public TypeDeclaration {
 };
 
 
-STRUCT_WITH_PTR(UnitDeclaration) : public Declaration {
+PTRS_FOR_STRUCT(UnitDeclaration);
+struct UnitDeclaration : public Declaration {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, unitNature),

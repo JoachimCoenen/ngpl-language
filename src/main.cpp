@@ -78,7 +78,7 @@ void writeFinalAssembler(cat::WriterObjectABC& s, const std::vector<ngpl::Instru
 
 	for (size_t i = 0; i < instructions.size(); ++i) {
 		cat::String iStr = std::to_string(i);
-		auto paddLength = 4 - iStr.length();
+		auto paddLength = std::max<int64_t>(0, 4 - iStr.length());
 		s += cat::nl;
 		s += cat::String(paddLength, ' ');
 		s += i;
@@ -86,7 +86,7 @@ void writeFinalAssembler(cat::WriterObjectABC& s, const std::vector<ngpl::Instru
 		auto instrString = instructions[i].toString();
 		s += instrString;
 
-		paddLength = 80 - instrString.length();
+		paddLength = std::max<int64_t>(0, 80 - instrString.length());
 		s += cat::String(paddLength, ' ');
 		s += "";
 		s += lines.at(instructions[i].pos().line());
@@ -131,7 +131,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 
 	{
 		bool compiledSuccessfull = false;
-		ngpl::CodeGenerator ctx;
+		ngpl::compiler::CodeGenerator ctx;
 		ngpl::UnitPtr unit = nullptr;
 		try {
 			auto astRoot = parseFile(src);
@@ -139,36 +139,45 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[])
 			compiledSuccessfull = true;
 		} catch (ngpl::SyntaxError& e) {
 
-			auto errorLine = range(src)
-				.split_c(LAMBDA(v){ return v == '\n'; })
-				.dropN(e.pos().line())
-				.first_c()
-				.toString();
-
-			uint32_t columnPos;
-			{
-				auto substr = errorLine.substr(0, e.pos().column());
-				columnPos = range(substr).map_c(LAMBDA(c){ return c == '\t' ? 4ul : 1ul; }).join();
-			}
-			cat::String errorMarkerLine;
-			if (columnPos >= 2) {
-				errorMarkerLine = cat::String(columnPos - 2, ' ') + "~~^~~";
-			} else {
-				errorMarkerLine = cat::String(columnPos, ' ') + "^~~";
-			}
-
-			auto errorLineForPrint = range(errorLine)
-				.split_c(LAMBDA(v){ return v == '\t'; })
-				.map_c(LAMBDA(v){ return v.toString(); })
-				.addSeparator_c([](){ return "    "; })
-				.join();
-
 			out += e.what();
-			out += cat::nlIndent;
-			out += errorLineForPrint;
-			out += cat::nlIndent;
-			out += errorMarkerLine;
-		}
+
+			if (e.pos()) {
+				auto errorLine = range(src)
+					.split_c(LAMBDA(v){ return v == '\n'; })
+					.dropN(e.pos()->line())
+					.first_c()
+					.toString();
+
+				uint32_t columnPos;
+				{
+					auto substr = errorLine.substr(0, e.pos()->column());
+					columnPos = range(substr).map_c(LAMBDA(c){ return c == '\t' ? 4ul : 1ul; }).join();
+				}
+				cat::String errorMarkerLine;
+				if (columnPos >= 2) {
+					errorMarkerLine = cat::String(columnPos - 2, ' ') + "~~^~~";
+				} else {
+					errorMarkerLine = cat::String(columnPos, ' ') + "^~~";
+				}
+
+				auto errorLineForPrint = range(errorLine)
+					.split_c(LAMBDA(v){ return v == '\t'; })
+					.map_c(LAMBDA(v){ return v.toString(); })
+					.addSeparator_c([](){ return "    "; })
+					.join();
+
+				out += cat::nlIndent;
+				out += errorLineForPrint;
+				out += cat::nlIndent;
+				out += errorMarkerLine;
+			}
+		} /*catch (const ngpl::util::debug::AssertionError& e) {
+			{
+				auto outFile = cat::FW(new std::ofstream(unitPath + NGPL_COMPILED_EXTENSION));
+				unit->print(outFile);
+			}
+		}*/
+
 		if (compiledSuccessfull) {
 			//write to File:
 			{

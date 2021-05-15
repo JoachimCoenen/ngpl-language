@@ -37,7 +37,7 @@ public:
 	Type(const cat::String& name, const cat::String& qualifier, uint64_t fixedSize, TypeKind typeKind, bool isFinished = false);
 	//Type(cat::String&& name, uint64_t fixedSize, bool isBasic, bool isFinished = false);
 
-	ScopeWeakPtr scope() { return _scope.weak(); }
+	ScopeSharedPtr& scope() { return _scope; }
 	ScopeCWeakPtr scope() const { return _scope.weak(); }
 	void setScope(const ScopeSharedPtr& newScope) { _scope = newScope; }
 	const intermediate::IntermediateCodeContainer& body() const { return _body; }
@@ -46,7 +46,9 @@ public:
 	bool isBasic() const { return _typeKind == TypeKind::BASIC; }
 	bool isTupleLike() const { return _typeKind == TypeKind::TUPLE_LIKE; }
 	bool isClass() const { return _typeKind == TypeKind::CLASS_LIKE; }
-	//uint64_t& fixedSize() { return _fixedSize; }
+	bool isAssignableTo(const Type& destination) const;
+
+
 	uint64_t fixedSize() const { return _fixedSize; }
 
 	bool isFinished() const { return _isFinished; }

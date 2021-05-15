@@ -5,10 +5,6 @@
 
 namespace ngpl {
 
-cat::WriterObjectABC& operator += (cat::WriterObjectABC& s, const None_&) {
-	return s += "   ";
-}
-
 #define INSTRUCTION_FACTORY0(instrName, stackDelta, hasSideEffect, funcName) FORMAT_ENUM_VAL_CASE(InstructionID, instrName);
 #define INSTRUCTION_FACTORY1(instrName, stackDelta, hasSideEffect, funcName, argType, arg) FORMAT_ENUM_VAL_CASE(InstructionID, instrName);
 cat::WriterObjectABC& operator +=(cat::WriterObjectABC& s, const InstructionID& v) {

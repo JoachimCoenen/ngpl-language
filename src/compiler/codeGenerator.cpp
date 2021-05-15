@@ -1,5 +1,6 @@
 #include "codeGenerator.h"
 
+#include "intermediateCodeBuilder.h"
 #include "builtins/builtins.h"
 
 #include "ranges.h"
@@ -14,18 +15,20 @@ using Instrs = intermediate::Instructions;
 
 }
 
-namespace ngpl {
+#define ASSERT_NO_TEMPS_ON_STACK(cb, pos) (cb)->assertNoTempsOnStack(pos);
+#define ASSERT_TEMPS_ON_STACK(cb, expectedCount, pos) (cb)->assertTempsOnStack(expectedCount, pos);
+
+namespace ngpl::compiler {
 
 CodeGenerator::CodeGenerator()
 {
 	//pushScope(true);
 	// add the stackFramePtr:
-	// currentScope()->addVariable("*stackFramePtr", getType("Int", Position()));
+	// currentCodeBuilder()->addVariable("*stackFramePtr", getType("Int", Position()));
 }
 
-void CodeGenerator::evalRoot(const RootCWeakPtr& root)
+void CodeGenerator::evalRoot(RootCWeakPtr root)
 {
-	//writeBuiltinFunctions();
 	//addInstruction(Instrs::PushInt(uint64_t(0), root->pos));
 	//addInstruction(Instrs::WriteFA(uint64_t(0), root->pos));
 
@@ -36,84 +39,97 @@ void CodeGenerator::evalRoot(const RootCWeakPtr& root)
 	//addInstruction(Instrs::Nop(Position()));
 }
 
-UnitPtr CodeGenerator::evalUnitDeclaration(const UnitDeclarationCWeakPtr& unitDecl)
+UnitPtr CodeGenerator::evalUnitDeclaration(UnitDeclarationCWeakPtr unitDecl)
 {
 	const auto& name = unitDecl->name;
 	const auto& unitNature = unitDecl->unitNature;
 	UnitPtr unit = new Unit(name, nullptr, unitNature);
-	codeContainerStack.push_back(&unit->body());
-	pushScope(true);
+	pushCodeBuilder(unit->body());
+	evalBlock(unitDecl->block.weak(), false);
 
-	foreach_c(innerDecl, unitDecl->block->statements) {
-		evalStatement(innerDecl.weak());
-	}
-
-	unit->setScope(currentScope());
-	popScope();
-
+	unit->setScope(currentCodeBuilder()->baseScope());
+	popCodeBuilder();
 	return unit;
 }
 
 
-TypeReference CodeGenerator::evalLiteral(const LiteralCWeakPtr& literal)
+TypeReference CodeGenerator::evalLiteral(LiteralCWeakPtr literal)
 {
+	auto ccb = currentCodeBuilder();
 	if (auto literalBool = literal.as<LiteralBool>()) {
-		addInstruction(Instrs::PushInt(uint64_t(literalBool->get()), literalBool->pos));
-		return TypeReference(getType("Bool", literal->pos), {}, false);
+		ccb->addInstruction(Instrs::PushInt(uint64_t(literalBool->get()), literalBool->pos));
+		return TypeReference(ccb->getType("Bool", literal->pos), {}, false);
 	}
 	if (auto literalInt = literal.as<LiteralInt>()) {
-		addInstruction(Instrs::PushInt(literalInt->get(), literalInt->pos));
-		return TypeReference(getType("Int", literal->pos), {}, false);
+		ccb->addInstruction(Instrs::PushInt(literalInt->get(), literalInt->pos));
+		return TypeReference(ccb->getType("Int", literal->pos), {}, false);
 	}
 	if (auto literalString = literal.as<LiteralString>()) {
-		addInstruction(Instrs::PushStr(literalString->get(), literalString->pos));
-		return  TypeReference(getType("String", literal->pos), {}, false);
+		ccb->addInstruction(Instrs::PushStr(literalString->get(), literalString->pos));
+		return  TypeReference(ccb->getType("String", literal->pos), {}, false);
 	}
+	if (auto literalString = literal.as<LiteralNil>()) {
+		ccb->addInstruction(Instrs::PushNullR(literalString->pos));
+		return  TypeReference(ccb->getType("Any", literal->pos), {}, true);
+	}
+
 
 	throw SyntaxError(cat::SW() << "Unknown Literal type! (compiler is broken!)'" << literal->getTypeName() << "'.", literal->pos);
 }
 
-TypeReference CodeGenerator::evalExpression(const ExpressionCWeakPtr& expr, bool asReference)
+TypeReference CodeGenerator::evalExpression(ExpressionCWeakPtr expr, bool asReference)
 {
-	uint32_t oldTempsOnStack = tempsOnStack;
+	uint32_t oldTempsOnStack = currentCodeBuilder()->tempsOnStack();
 	auto result = _evalExpression_(expr, asReference);
-	NGPL_ASSERT(tempsOnStack - oldTempsOnStack ==
-				(asReference ? 1 : (int64_t)result.fixedSize()));
+	ASSERT_TEMPS_ON_STACK(currentCodeBuilder(), oldTempsOnStack + (asReference ? 1 : (int64_t)result.fixedSize()), expr->pos);
 	return result;
 }
 
-TypeReference CodeGenerator::_evalExpression_(const ExpressionCWeakPtr& expr, bool asReference)
+TypeReference CodeGenerator::_evalExpression_(ExpressionCWeakPtr expr, bool asReference)
 {
 	if (auto literal = expr.as<Literal>()) {
-		NGPL_ASSERT2(not asReference, "cannot reference literals");
+		NGPL_COMPILER_ASSERT2(not asReference, "cannot reference literals", expr->pos);
 		return evalLiteral(literal);
 	}
 
 	if (auto variableRef = expr.as<VariableReference>()) {
-		auto [variable, isReference] = evalVariableReference(variableRef);
-		if (asReference or variable.type().isReference()) {
-			refFromVariable(&variable, variableRef->pos);
+		auto variableAccess = evalVariableReference(variableRef);
+
+		if (asReference) {
+			auto resVar = currentCodeBuilder()->refFromVariable(variableAccess, variableRef->pos);
+			return resVar.type();
 		} else {
-			readFromVariable(&variable, isReference, variableRef->pos);
+			auto resVar = currentCodeBuilder()->readFromVariable2(variableAccess,  variableRef->pos);
+			return resVar.type();
 		}
-		return variable.type();
 	}
 
 	if (auto funcCall = expr.as<FunctionCall>()) {
-		NGPL_ASSERT2(not asReference, "cannot reference FunctionCall");
+		NGPL_COMPILER_ASSERT2(not asReference, "cannot reference FunctionCall", expr->pos);
 		const auto& name = funcCall->name;
 
+		if (name == "memalloc") {
+			std::cout << "memalloc" << std::endl;
+		}
+
+		bool isNonBasicCtor = false;
 		TypeReference parentType = NONE_TYPE();
 		const bool isMethod = funcCall->parent != nullptr;
 		if (isMethod) {
 			parentType = evalExpression(funcCall->parent.weak(), asReference=true);
+		} else if (TypeCWeakPtr ctorType = currentCodeBuilder()->tryGetType(funcCall->name)) {
+			if (not ctorType->isBasic()) {
+				isNonBasicCtor = true;
+				currentCodeBuilder()->allocateStackTemporary(ctorType, funcCall->pos);
+			}
 		}
 
 		auto argsTemp = cat::range(funcCall->arguments)
-			.map(LAMBDA2(this, v) {return this->evalExpression(v.weak()); })
+			.map(LAMBDA2(this, v) {return this->evalFunctionArgument(v.weak()); })
 			.toContainer2<cat::DynArray>();
 
-		CallArgTypes args{{argsTemp.rbegin(), argsTemp.rend()}};
+		//CallArgTypes args{{argsTemp.rbegin(), argsTemp.rend()}};
+		CallArgs args{std::move(argsTemp)};
 
 		FunctionBaseCWeakPtr func;
 		if (isMethod) {
@@ -121,60 +137,38 @@ TypeReference CodeGenerator::_evalExpression_(const ExpressionCWeakPtr& expr, bo
 			if (not func) {
 				throw SyntaxError(cat::SW() << "unknown member '" << funcCall->name << "' in object of type " << parentType.asQualifiedCodeString() << ".", funcCall->pos);
 			}
+		} else if (isNonBasicCtor){
+			func = currentCodeBuilder()->getCtor(name, {std::move(args)}, funcCall->pos);
 		} else {
-			func = getFunction(name, {std::move(args)}, funcCall->pos);
-		}
-		evalFunction(func, funcCall->pos);
-
-
-		if (isMethod) {
-			// cleaning up...
-			// current stack Layout:
-			// ...|parent|returnValue|
-			// desired stack Layout:
-			// ...|returnValue|
-			auto baseAddr = currentScope()->getFrameSize() + tempsOnStack- func->returnType().fixedSize();
-
-			// REMOVED because 'self' is now HEAP_REF:
-			// if (auto selfRef = funcCall->parent.as<VariableReference>()) {
-			// 	readFromStackFrameF(baseAddr - parentType->fixedSize(), parentType->fixedSize(), funcCall->pos);
-			// 	auto selfVar = evalVariableReference(selfRef);
-			// 	writeToVariable(&selfVar, funcCall->pos);
-			// }
-
-			// REMOVED because 'self' is now HEAP_REF:
-			// readFromStackFrameF(baseAddr, func->returnType()->fixedSize(), funcCall->pos);
-			// writeToStackFrameF(baseAddr - parentType->fixedSize(), func->returnType()->fixedSize(), funcCall->pos);
-			// for (auto i = parentType->fixedSize(); i --> 0; ) {
-			// 	addInstruction(Instrs::PopVal(funcCall->pos));
-			// }
+			func = currentCodeBuilder()->getFunction(name, {std::move(args)}, funcCall->pos);
 		}
 
+		currentCodeBuilder()->callFunction(func, funcCall->pos);
 
 		return func->returnType();
 	}
 
 	if (auto operCall = expr.as<BinaryOperatorCall>()) {
-		NGPL_ASSERT2(not asReference, "cannot reference BinaryOperatorCall");
+		NGPL_COMPILER_ASSERT2(not asReference, "cannot reference BinaryOperatorCall", operCall->pos);
 		const auto& name = operCall->name;
-		cat::DynArray<TypeReference> args {
-			/*lhs*/ this->evalExpression(operCall->lhs.weak()),
-			/*rhs*/ this->evalExpression(operCall->rhs.weak())
+		cat::DynArray<Argument> args {
+			/*lhs*/ Argument(this->evalExpression(operCall->lhs.weak())),
+			/*rhs*/ Argument(this->evalExpression(operCall->rhs.weak()))
 		};
 		args = {args.rbegin(), args.rend()};
-		const auto& func = getFunction(name, std::move(args), operCall->pos);
-		evalFunction(func, operCall->pos);
+		const auto& func = currentCodeBuilder()->getFunction(name, std::move(args), operCall->pos);
+		currentCodeBuilder()->callFunction(func, operCall->pos);
 
 		return func->returnType();
 	}
 	if (auto operCall = expr.as<UnaryOperatorCall>()) {
-	NGPL_ASSERT2(not asReference, "cannot reference UnaryOperatorCall");
+	NGPL_COMPILER_ASSERT2(not asReference, "cannot reference UnaryOperatorCall", operCall->pos);
 	const auto& name = operCall->name;
-	cat::DynArray<TypeReference> args {
-		this->evalExpression(operCall->operand.weak()),
+	cat::DynArray<Argument> args {
+		Argument(this->evalExpression(operCall->operand.weak())),
 	};
-	const auto& func = getFunction(name, std::move(args), operCall->pos);
-	evalFunction(func, operCall->pos);
+	const auto& func = currentCodeBuilder()->getFunction(name, std::move(args), operCall->pos);
+	currentCodeBuilder()->callFunction(func, operCall->pos);
 
 	return func->returnType();
 }
@@ -182,129 +176,77 @@ TypeReference CodeGenerator::_evalExpression_(const ExpressionCWeakPtr& expr, bo
 	throw SyntaxError(cat::SW() << "Unknow ExpressinType '" << expr->getTypeName() << "'.", expr->pos);
 }
 
-TypeReference CodeGenerator::evalFunction(const FunctionBaseCWeakPtr& func, const Position& pos)
+void CodeGenerator::evalStatement(StatementCWeakPtr stmt)
 {
-	if (auto fn = func.as<Function>()) {
-		// handle stack frame:
-//		addInstruction(Instrs::PushInt(currentScope().salt, pos));
-//		addInstruction(Instrs::ReadFA(0, pos));
-
-//		const auto& add = tryGetBuiltinFunction("+", FunctionSignature{{ GET_BUILIN_TYPE("Int"), GET_BUILIN_TYPE("Int") }});
-//		addInstruction(Instrs::Call(&(add->_body), pos));
-
-//		addInstruction(Instrs::WriteFA(0, pos));
-
-		// call function:
-		addInstruction(Instrs::Call(&fn.get(), pos));
-
-
-		// handle stack frame:
-//		addInstruction(Instrs::PushInt(currentScope().salt, pos));
-//		addInstruction(Instrs::ReadFA(0, pos));
-
-//		const auto& sub = tryGetBuiltinFunction("-", FunctionSignature{{ GET_BUILIN_TYPE("Int"), GET_BUILIN_TYPE("Int") }});
-//		addInstruction(Instrs::Call(&sub->_body, pos));
-
-//		addInstruction(Instrs::WriteFA(0, pos));
-
-	} else if (auto fn = func.as<BuiltinFunction>()) {
-		if (fn->_instructions.has_value()) {
-			foreach_c(instrId, fn->_instructions.value()) {
-				addInstruction(InterInstr(instrId, None_{}, pos));
-			}
-			return func->returnType();
-		} else {
-			addInstruction(Instrs::Call(&fn.get(), pos));
-		}
-	}
-	tempsOnStack += func->stackDelta();
-
-	return func->returnType();
-
-}
-
-void CodeGenerator::evalStatement(const StatementCWeakPtr& stmt)
-{
-	NGPL_ASSERT(tempsOnStack == 0);
+	ASSERT_NO_TEMPS_ON_STACK(currentCodeBuilder(), stmt->pos);
 
 	if (auto expr = stmt.as<Expression>()) {
 		auto type = evalExpression(expr);
 		for (auto i = type.fixedSize(); i --> 0; ) {
-			addInstruction(Instrs::PopVal(expr->pos));
+			currentCodeBuilder()->addInstruction(Instrs::PopVal(expr->pos));
 		}
 	}
 
 	else if (auto assignment = stmt.as<Assignment>()) {
-		auto [variable, isReference] = evalVariableReference(assignment->variable.weak());
+		auto variableAccess = evalVariableReference(assignment->variable.weak());
 		auto type = evalExpression(assignment->expr.weak());
-		checkType(variable.type(), type, assignment->expr->pos);
+		checkType(variableAccess.variable().type(), type, assignment->expr->pos);
 
-		writeToVariable(&variable, isReference, assignment->pos);
+		currentCodeBuilder()->writeToVariable(variableAccess, assignment->pos);
 	}
 
 	else if (auto ifControl = stmt.as<IfControl>()) {
 		const auto conditionType = evalExpression(ifControl->condition.weak());
 		checkType(BOOL_TYPE(), conditionType, ifControl->condition->pos);
-		tempsOnStack -= 1;
 
-		itm::IntermediateCodeContainer ifCode;
-		codeContainerStack.push_back(&ifCode);
+		itm::IntermediateIf* ifInstr = new itm::IntermediateIf(false, {}, {}, ifControl->pos);
+		currentCodeBuilder()->addIf(ifInstr);
+
+		pushCodeBuilder(ifInstr->ifCode, false);
 		evalBlock(ifControl->thenBlock.weak());
-		codeContainerStack.pop_back();
+		popCodeBuilder();
 
-		itm::IntermediateCodeContainer elseCode;
 		if (ifControl->elseBlock) {
-			codeContainerStack.push_back(&elseCode);
+			pushCodeBuilder(ifInstr->elseCode, false);
 			evalBlock(ifControl->elseBlock.weak());
-			codeContainerStack.pop_back();
+			popCodeBuilder();
 		}
-
-		addInstruction(new itm::IntermediateIf(false, std::move(ifCode), std::move(elseCode), ifControl->pos));
 
 	}
 
 	else if (auto whileControl = stmt.as<WhileControl>()) {
 		//const auto whileConditionPos = getCurrentPos();
 		itm::IntermediateCodeContainer code;
-		codeContainerStack.push_back(&code);
+		pushCodeBuilder(code, false);
 
 		const auto conditionType = evalExpression(whileControl->condition.weak());
 		checkType(BOOL_TYPE(), conditionType, whileControl->condition->pos);
-		tempsOnStack -= 1;
 
-		itm::IntermediateCodeContainer ifCode;
-		codeContainerStack.push_back(&ifCode);
-		addInstruction(new itm::IntermediateSpecial(itm::IntermediateSpecialId::BREAK, whileControl->pos));
-		codeContainerStack.pop_back();
+		itm::IntermediateIf* ifInstr = new itm::IntermediateIf(false, {}, {}, whileControl->pos);
+		currentCodeBuilder()->addIf(ifInstr);
 
-		itm::IntermediateCodeContainer elseCode;
-		addInstruction(new itm::IntermediateIf(true, std::move(ifCode), std::move(elseCode), whileControl->pos));
-
-
+		pushCodeBuilder(ifInstr->ifCode, false);
+		currentCodeBuilder()->addSpecialInstruction(itm::IntermediateSpecialId::BREAK, whileControl->pos);
+		popCodeBuilder();
 
 		evalBlock(whileControl->block.weak());
-		addInstruction(new itm::IntermediateSpecial(itm::IntermediateSpecialId::CONTINUE, whileControl->pos));
-		codeContainerStack.pop_back();
-		addInstruction(new itm::IntermediateLoop(std::move(code), whileControl->pos));
+		currentCodeBuilder()->addSpecialInstruction(itm::IntermediateSpecialId::CONTINUE, whileControl->pos);
+		popCodeBuilder();
+		currentCodeBuilder()->addLoop(new itm::IntermediateLoop(std::move(code), whileControl->pos));
 	}
 
 	else if (auto returnStmt = stmt.as<ReturnStatement>()) {
 		auto type = evalExpression(returnStmt->expr.weak());
-		auto variable = getVariable("*return", returnStmt->pos);
-		checkType(variable->type(), type, returnStmt->expr->pos);
-
-		// "save" result:
-		const auto returnSize = variable->address() + variable->fixedSize();
-		writeToVariable(variable, returnStmt->pos);
+		auto variable = currentCodeBuilder()->getVariable("*return", returnStmt->pos);
+		if (functionStack.peek()->isCtor()) {
+			//checkType(variable->type(), type, returnStmt->expr->pos);
+		} else {
+			checkType(variable->type(), type, returnStmt->expr->pos);
+			// "save" result:
+			currentCodeBuilder()->writeToVariable(IndirectAccess(Variable{*variable}), returnStmt->pos);
+		}
 		// cleanup stack:
-		cleanupStack(currentScope()->getFrameSize() - returnSize, returnStmt->pos);
-//		NGPL_ASSERT(tempsOnStack == 0);
-//		for (auto i = currentScope().salt; i --> returnSize;) {
-//			addInstruction(Instrs::PopVal(returnStmt->pos));
-//		}
-//		tempsOnStack = 0;
-
-		addInstruction(new itm::IntermediateSpecial(itm::IntermediateSpecialId::RETURN, returnStmt->pos));
+		currentCodeBuilder()->cleanupStackAndReturn(returnStmt->pos);
 	}
 
 	else if (auto decl = stmt.as<Declaration>()) {
@@ -315,182 +257,251 @@ void CodeGenerator::evalStatement(const StatementCWeakPtr& stmt)
 		throw SyntaxError(cat::SW() << "Unknow StatementType '" << stmt->getTypeName() << "'.", stmt->pos);
 	}
 
-	NGPL_ASSERT(tempsOnStack == 0);
+	ASSERT_NO_TEMPS_ON_STACK(currentCodeBuilder(), stmt->pos);
 
 }
 
-void CodeGenerator::evalBlock(const BlockCWeakPtr& block)
+void CodeGenerator::evalBlock(BlockCWeakPtr block, bool pushScope)
 {
-	pushScope();
-	foreach_c(stmt, block->statements) {
-		evalStatement(stmt.weak());
+	if (pushScope) {
+		currentCodeBuilder()->pushScope();
 	}
 
-	auto oldScope = std::move(*currentScope());
-	popScope();
-	// cleanup stack:
-	cleanupStack(oldScope.getFrameSize() - currentScope()->getFrameSize(), block->pos);
-//	for (auto i = oldScope.salt; i --> currentScope().salt;) {
-//		addInstruction(Instrs::PopVal(block->pos));
-	//	}
+	try {
+		foreach_c(innerDecl, block->statements) {
+			evalStatement(innerDecl.weak());
+		}
+	} catch (util::debug::AssertionError& ex) {
+		currentCodeBuilder()->logError(new WrappingCompileError(ex.makeCopy(), std::nullopt));
+	} catch (SyntaxError& ex) {
+		throw ex;
+	} catch (CompileError& ex) {
+		currentCodeBuilder()->logError(ex.makeCopy());
+	}
+
+	if (pushScope) {
+		currentCodeBuilder()->popScope(block->pos);
+	}
 }
 
-FunctionSignature CodeGenerator::makeFunctionSignature(FuncDeclarationCWeakPtr funcDecl)
+Argument CodeGenerator::evalFunctionArgument(ExpressionCWeakPtr expr)
 {
-	auto parameterTypes =
-			cat::range(funcDecl->parameters)
+	return Argument(evalExpression(expr));
+}
+
+FunctionSignature CodeGenerator::makeFunctionSignature(const std::vector<ParamDeclarationPtr>& parametersDecl, TypeReference&& returnType)
+{
+	auto parameters =
+			cat::range(parametersDecl)
 			.map_c(LAMBDA2(&, param) {
-				return getTypeRef(param->type.weak());
+				return Parameter(param->name, getTypeRef(param->type.weak()));
 			})
 			.toContainer2<cat::DynArray>();
 
-	TypeReference returnType = NONE_TYPE();
-	if (funcDecl->returnType) {
-		returnType = getTypeRef(funcDecl->returnType.weak());
-	}
-
-	FunctionSignature signature{std::move(parameterTypes), std::move(returnType)};
+	FunctionSignature signature{std::move(parameters), std::move(returnType)};
 	return signature;
 }
 
-void CodeGenerator::evalFunctionSignature(FuncDeclarationCWeakPtr funcDecl)
+void CodeGenerator::evalFunctionSignature(const FunctionSignature& signature, const Position& pos)
 {
-	foreach_c(param, funcDecl->parameters) {
-		const auto& name = param->name;
-		if (hasVariable(name)) {
-			throw SyntaxError(cat::SW() << "redefinition of '" << name << "'.", param->pos);
+	foreach_c(param, signature.parameters()) {
+		const auto& name = param.name();
+		if (currentCodeBuilder()->hasLocalVariable(name)) {
+			throw SyntaxError(cat::SW() << "redefinition of '" << name << "'.", pos);
 		}
-		// auto relAddr = currentScope()->addVariable(name, type);
-		currentScope()->addVariable(name, new Variable(getTypeRef(param->type.weak()), 0, ReferenceMode::STACK_VAL, true, false));
+		// auto relAddr = currentCodeBuilder()->addVariable(name, type);
+		currentCodeBuilder()->addVariable(name, new Variable(param.type(), 0_fa, ReferenceMode::STACK_VAL, true, false));
 		// writeToStackFrame(relAddr, type->fixedSize(), param->pos);
 	}
 
-	const auto oldFrameSize = currentScope()->getFrameSize();
-	{
-		TypeReference returnType = NONE_TYPE();
-		if (funcDecl->returnType) {
-			returnType = getTypeRef(funcDecl->returnType.weak());
-		}
-		//currentScope()->addVariable("*return", returnType);
-		currentScope()->setVariable("*return", new Variable(std::move(returnType), 0, ReferenceMode::STACK_VAL, false, false));
-	}
-
-	// make sure there's enough room for the return value:
-	const auto newFrameSize = currentScope()->getFrameSize();
-	if (newFrameSize > oldFrameSize) {
-		NGPL_ASSERT(tempsOnStack == 0);
-		for (auto i = oldFrameSize; i < newFrameSize; ++i ) {
-			addInstruction(Instrs::PushInt(0, funcDecl->pos));
-		}
-		tempsOnStack = 0;
-	}
+	currentCodeBuilder()->allocateReturnVariable(TypeReference{signature.returnType()}, pos);
 }
 
 void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 {
-	NGPL_ASSERT(tempsOnStack == 0);
+	ASSERT_NO_TEMPS_ON_STACK(currentCodeBuilder(), decl->pos);
 	if (auto varDecl = decl.as<VarDeclaration>()) {
-		const auto& name = decl->name;
-		if (hasVariable(name)) {
-			throw SyntaxError(cat::SW() << "redefinition of '" << name << "'.", decl->pos);
-		}
-
-		std::optional<TypeReference> type = std::nullopt;
-		bool valuesAlreadyOnStack = false;
-		if (varDecl->initExpr) {
-			NGPL_ASSERT(tempsOnStack == 0);
-			valuesAlreadyOnStack = true;
-			type = evalExpression(varDecl->initExpr.weak());
-			NGPL_ASSERT(tempsOnStack == int64_t(type->fixedSize()));
-		}
-
-		std::optional<TypeReference> declType = std::nullopt;
-		if (varDecl->type) {
-			declType = getTypeRef(varDecl->type.weak());
-		}
-
-		if (type and declType) {
-			checkType(declType.value(), type.value(), varDecl->initExpr->pos);
-		}
-
-		if (not declType) {
-			declType = type;
-		}
-		if (not declType->baseType()->isFinished()) {
-			throw SyntaxError(cat::SW() << "Illegal use of unfinished type '" << type->asCodeString() << "'.", varDecl->pos);
-		}
-
-		const bool isConst = bool(decl.as<ConstDeclaration>());
-		const bool isGlobal = this->isGlobal();
-		if (isGlobal) {
-			throw SyntaxError(cat::SW() << "global variables not implemented yet.", varDecl->pos);
-
-			auto variable = currentScope()->addVariable(name, new Variable(TypeReference{*declType}, staticHeapSize, ReferenceMode::HEAP_VAL, true, isConst));
-			staticHeapSize += variable->type().fixedSize();
-			writeToHeapF(variable->address(), variable->type().fixedSize(), varDecl->pos);
-			NGPL_ASSERT(tempsOnStack == 0);
-		} else {
-			allocateStackVariable(name, TypeReference{*declType}, isConst, valuesAlreadyOnStack, varDecl->pos);
-		}
+		evalVarDeclaration(varDecl);
 	}
-
 	else if (auto funcDecl = decl.as<FuncDeclaration>()) {
-		//const auto jmpOverFuncDeclPos = addInstruction(Instrs::Nop(funcDecl->pos));
-		//const auto funcEntryPos = getCurrentPos();
-
-		FunctionSignature signature = makeFunctionSignature(funcDecl);
-
-		cat::String reason;
-		if (not canAddFunction(funcDecl->name, signature, reason)) {
-			throw SyntaxError(reason, decl->pos);
-		}
-
-		TypeWeakPtr selfType = typeStack.empty() ? nullptr : typeStack.peek();
-		bool isMethod = selfType != nullptr;
-
-		const auto qualifier = isMethod ? selfType->asQualifiedCodeString() + "." : "";
-		FunctionWeakPtr function = new Function(funcDecl->name, qualifier, std::move(signature), selfType, false);
-		currentScope()->addFunction(&function.get());
-
-		codeContainerStack.push_back(&function->body());
-		pushScope(true);
-
-
-		// handle self reference:
-		if (isMethod) {
-			currentScope()->addVariable("self", new Variable(TypeReference{selfType, true}, 0, ReferenceMode::STACK_VAL, true, false));
-		}
-		// handle function Signature:
-		evalFunctionSignature(funcDecl);
-
-		// handle function Body:
-		evalBlock(funcDecl->block.weak());
-
-		// cleanup stack:
-		auto returnVar = currentScope()->tryGetVariable("*return");
-		cleanupStack(currentScope()->getFrameSize() - (returnVar->address() + returnVar->fixedSize()), funcDecl->pos);
-
-		// return
-		addInstruction(new itm::IntermediateSpecial(itm::IntermediateSpecialId::RETURN, funcDecl->pos));
-
-		//setInstruction(jmpOverFuncDeclPos, Instrs::JumpFA(getCurrentPos(), funcDecl->pos));
-		popScope();
-		codeContainerStack.pop_back();
+		evalFuncDeclaration(funcDecl);
+	}
+	else if (auto ctorDecl = decl.as<CtorDeclaration>()) {
+		evalCtorDeclaration(ctorDecl);
+	}
+	else if (auto dtorDecl = decl.as<DtorDeclaration>()) {
+		evalDtorDeclaration(dtorDecl);
 	}
 	else if (auto typeDecl = decl.as<TypeDeclaration>()) {
 		evalTypeDeclaration(typeDecl);
-	} else {
+	}
+	else {
 		throw SyntaxError("Future syntax not supported yet.", decl->pos);
 	}
 
-	NGPL_ASSERT(tempsOnStack == 0);
+	ASSERT_NO_TEMPS_ON_STACK(currentCodeBuilder(), decl->pos);
+}
+
+void CodeGenerator::evalVarDeclaration(const VarDeclarationCWeakPtr& varDecl)
+{
+	const auto& name = varDecl->name;
+	cat::String reasonOut;
+	if (not currentCodeBuilder()->canAddVariable(name, reasonOut)) {
+		throw SyntaxError(reasonOut, varDecl->pos);
+	}
+
+	std::optional<TypeReference> type = std::nullopt;
+	bool valuesAlreadyOnStack = false;
+	if (varDecl->initExpr) {
+		ASSERT_NO_TEMPS_ON_STACK(currentCodeBuilder(), varDecl->pos);
+		valuesAlreadyOnStack = true;
+		type = evalExpression(varDecl->initExpr.weak());
+		ASSERT_TEMPS_ON_STACK(currentCodeBuilder(), int64_t(type->fixedSize()), varDecl->pos);
+	}
+
+	std::optional<TypeReference> declType = std::nullopt;
+	if (varDecl->type) {
+		declType = getTypeRef(varDecl->type.weak());
+	}
+
+	if (type and declType) {
+		checkType(declType.value(), type.value(), varDecl->initExpr->pos);
+	}
+
+	if (not declType) {
+		declType = type;
+	}
+	if (not declType->baseType()->isFinished() and not declType->isPointer()) {
+		throw SyntaxError(cat::SW() << "Illegal use of unfinished type '" << type->asCodeString() << "'.", varDecl->pos);
+	}
+
+	const bool isConst = varDecl->isConst;
+	const bool isGlobal = this->isGlobal();
+	if (isGlobal) {
+		currentCodeBuilder()->allocateHeapVariable(name, TypeReference{*declType}, isConst, valuesAlreadyOnStack, varDecl->pos);
+//			throw SyntaxError(cat::SW() << "global variables not implemented yet.", varDecl->pos);
+
+//			auto variable = currentCodeBuilder()->addVariable(name, new Variable(TypeReference{*declType}, staticHeapSize, ReferenceMode::HEAP_VAL, true, isConst));
+//			staticHeapSize += variable->type().fixedSize();
+//			currentCodeBuilder()->writeToVariable(variable, varDecl->pos);
+//			ASSERT_NO_TEMPS_ON_STACK(currentCodeBuilder(), varDecl->pos);
+	} else {
+		currentCodeBuilder()->allocateStackVariable(name, TypeReference{*declType}, isConst, valuesAlreadyOnStack, varDecl->pos);
+	}
+}
+
+void CodeGenerator::evalFuncDeclaration(const FuncDeclarationCWeakPtr& funcDecl)
+{
+	// self type for method:
+	TypeWeakPtr selfType = typeStack.empty() ? nullptr : typeStack.peek();
+	bool isMethod = selfType != nullptr;
+
+	// return type:
+	TypeReference returnType = NONE_TYPE();
+	if (funcDecl->returnType) {
+		returnType = getTypeRef(funcDecl->returnType.weak());
+	}
+	FunctionSignature signature = makeFunctionSignature(funcDecl->parameters, std::move(returnType));
+
+	const cat::String name = funcDecl->name;
+
+	cat::String reasonOut;
+	if (not currentCodeBuilder()->canAddFunction(name, signature, reasonOut)) {
+		throw SyntaxError(reasonOut, funcDecl->pos);
+	}
+
+	const auto qualifier = isMethod ? selfType->asQualifiedCodeString() + "." : "";
+	FunctionWeakPtr function = new Function(name, qualifier, std::move(signature), selfType, false);
+	currentCodeBuilder()->addFunction(name, function.getPtr());
+
+	pushCodeBuilder(function->body());
+	functionStack.push(function);
+
+	// handle self reference:
+	if (isMethod) {
+		currentCodeBuilder()->addVariable("self", new Variable(TypeReference{selfType, true}, 0_fa, ReferenceMode::STACK_VAL, true, false));
+	}
+	// handle function Signature:
+	evalFunctionSignature(function->signature(), funcDecl->pos);
+
+	// handle function Body:
+	evalBlock(funcDecl->block.weak());
+
+	// cleanup stack and return:
+	currentCodeBuilder()->cleanupStackAndReturn(funcDecl->pos);
+
+	functionStack.pop();
+	popCodeBuilder();
+}
+
+void CodeGenerator::evalCtorDeclaration(const CtorDeclarationCWeakPtr& ctorDecl)
+{
+
+	// self type for method:
+	TypeWeakPtr selfType = typeStack.empty() ? nullptr : typeStack.peek();
+	bool isMethod = selfType != nullptr;
+
+	if (not isMethod) {
+		SyntaxError("Constructors are only allowed inside of types.", ctorDecl->pos);
+	}
+	if (not ctorDecl->name.empty()) {
+		throw SyntaxError("Named constructors are not supported yet.", ctorDecl->pos);
+	}
+
+	// return type:
+	TypeReference returnType = TypeReference(selfType, false);
+	FunctionSignature signature = makeFunctionSignature(ctorDecl->parameters, std::move(returnType));
+
+	const cat::String name = "*ctor";
+
+	cat::String reasonOut;
+	if (not currentCodeBuilder()->canAddFunction(name, signature, reasonOut)) {
+		throw SyntaxError(reasonOut, ctorDecl->pos);
+	}
+
+	const auto qualifier = selfType->asQualifiedCodeString() + ".";
+	FunctionWeakPtr ctor = new Function(name, qualifier, std::move(signature), nullptr, false);
+	currentCodeBuilder()->addFunction(name, ctor.getPtr());
+
+	pushCodeBuilder(ctor->body());
+	functionStack.push(ctor);
+
+	// handle self reference:
+	currentCodeBuilder()->addVariable("self", new Variable(TypeReference{selfType, false}, 0_fa, ReferenceMode::STACK_VAL, true, false));
+
+	// handle function Signature:
+	evalFunctionSignature(ctor->signature(), ctorDecl->pos);
+
+	// handle function Body:
+	if (selfType->isClass()) {
+		std::vector<ExpressionPtr> memallocParams;
+		memallocParams.push_back(new LiteralInt(selfType->fixedSize(), ctorDecl->pos));
+		Assignment assignment(
+					new VariableReference("self", ctorDecl->pos),
+					new FunctionCall("memalloc", nullptr, std::move(memallocParams), ctorDecl->pos),
+					ctorDecl->pos);
+		evalStatement(&assignment);
+	}
+	evalBlock(ctorDecl->block.weak());
+
+	// cleanup stack and return:
+	currentCodeBuilder()->cleanupStackAndReturn(ctorDecl->pos);
+
+	functionStack.pop();
+	popCodeBuilder();
+}
+
+void CodeGenerator::evalDtorDeclaration(const DtorDeclarationCWeakPtr& dtorDecl)
+{
+	throw SyntaxError("Future syntax not supported yet.", dtorDecl->pos);
 }
 
 void CodeGenerator::evalTypeDeclaration(const TypeDeclarationCWeakPtr& typeDecl)
 {
 	const auto& name = typeDecl->name;
-	if (hasVariable(name) or hasType(name)) {
-		throw SyntaxError(cat::SW() << "redefinition of '" << name << "'.", typeDecl->pos);
+	cat::String reasonOut;
+	if (not currentCodeBuilder()->canAddType(name, reasonOut)) {
+		throw SyntaxError(reasonOut, typeDecl->pos);
 	}
 
 	TypeWeakPtr parentType = typeStack.empty() ? nullptr : typeStack.peek();
@@ -505,10 +516,9 @@ void CodeGenerator::evalTypeDeclaration(const TypeDeclarationCWeakPtr& typeDecl)
 		throw SyntaxError("Future syntax not supported yet.", typeDecl->pos);
 	}
 
-	currentScope()->addType(name, TypePtr(&type.get()));
-	codeContainerStack.push_back(&type->body());
+	currentCodeBuilder()->addType(name, TypePtr(type.getPtr()));
+	pushCodeBuilder(type->body());
 	typeStack.push(type);
-	pushScope(true);
 
 	foreach_c(innerDecl, typeDecl->members) {
 		if (auto varDecl = innerDecl.as<VarDeclaration>()){
@@ -517,7 +527,7 @@ void CodeGenerator::evalTypeDeclaration(const TypeDeclarationCWeakPtr& typeDecl)
 	}
 
 	// copy pointer over:
-	type->setScope(currentScope());
+	type->setScope(currentCodeBuilder()->baseScope());
 
 	// finalize the type:
 	type->finish();
@@ -527,26 +537,10 @@ void CodeGenerator::evalTypeDeclaration(const TypeDeclarationCWeakPtr& typeDecl)
 		}
 	}
 
-	popScope();
 	typeStack.pop();
-	codeContainerStack.pop_back();
+	popCodeBuilder();
 }
 
-//void CodeGenerator::writeBuiltinFunctions()
-//{
-//	const auto jmpOverBuiltinsPos = addInstruction(Instrs::Nop(Position(0, 0, 0)));
-
-//	for(const auto& [name, overloads] : builtinFunctions) {
-//		for(const auto& [signature, overload] : overloads) {
-//		const auto funcEntryPos = addInstruction(Instrs::Call(&overload._body, Position(0, 0, 0)));
-//		addInstruction(Instrs::PopCntr(Position(0,0,0)));
-//		addInstruction(Instrs::JumpDA(Position(0,0,0)));
-
-//		currentScope().functions[name].insert({signature, new Function(name, signature, overload.returnType(), funcEntryPos)});
-//		}
-//	}
-//	setInstruction(jmpOverBuiltinsPos, Instrs::JumpFA(getCurrentPos(), Position(0, 0, 0)));
-//}
 
 cat::WriterObjectABC& CodeGenerator::toString(cat::WriterObjectABC& s) const
 {
@@ -559,28 +553,10 @@ cat::WriterObjectABC& CodeGenerator::toString(cat::WriterObjectABC& s) const
 
 }
 
-namespace ngpl {
+namespace ngpl::compiler {
 
-VariableCWeakPtr CodeGenerator::tryGetVariable(const cat::String& name) const
-{
-	foreach_c(scope, cat::reversed(scopeStack)) {
-		if (auto variable = scope->tryGetVariable(name)) {
-			return variable;
-		}
-	}
-	return nullptr;
-}
 
-VariableCWeakPtr CodeGenerator::getVariable(const cat::String& name, const Position& pos) const
-{
-	if (auto variable = tryGetVariable(name)) {
-		return variable;
-	} else {
-		throw SyntaxError(cat::SW() << "unknown variable '" << name << "'.", pos);
-	}
-}
-
-std::pair<Variable, bool> CodeGenerator::evalVariableReference(const VariableReferenceCWeakPtr& variableRef)
+IndirectAccess CodeGenerator::evalVariableReference(const VariableReferenceCWeakPtr& variableRef)
 {
 	if (auto member = variableRef.as<MemberAccess>()) {
 		cat::Stack<MemberAccessCWeakPtr> subMembers;
@@ -596,580 +572,60 @@ std::pair<Variable, bool> CodeGenerator::evalVariableReference(const VariableRef
 			throw SyntaxError(cat::SW() << "Accessing members of expressions is currently not supported.", variableRef->pos);
 		}
 
-		auto variable = getVariable(parent->name, parent->pos);
-		auto declType = variable->type();
-		auto relAddr = variable->address();
-		auto refMode = variable->referenceMode();
-		bool isReference = variable->isReference();
-		bool isConst = variable->isConst();
-		auto isTemporary = false; //
-		Address offset = variable->fixedOffset();
-
-
+		IndirectAccess variable = IndirectAccess(Variable(*currentCodeBuilder()->getVariable(parent->name, parent->pos)));
 		while (not subMembers.empty()) {
 			auto subMember = subMembers.pop();
-			auto subMemberVar = declType.scope()->tryGetVariable(subMember->name);
-			if (not subMemberVar) {
-				throw SyntaxError(cat::SW() << "unknown member '" << subMember->name << "' in object of type " << declType.asCodeString() << ".", subMember->pos);
-			}
-
-			auto subMemberVarType = subMemberVar->type();
-			auto subMemberVarIsConst = subMemberVar->isConst();
-
-			switch (refMode) {
-			case ReferenceMode::STACK_VAL:
-				if (declType.isReference()) {
-					switch (subMemberVar->referenceMode()) {
-					case ReferenceMode::STACK_VAL:
-						if (subMemberVarType.isReference()) {
-							if (not isTemporary) {
-								addInstruction(Instrs::ReadStackF(frameToStack(relAddr), subMember->pos));     //ReadStackF might leave a zombie, if value is temporary....
-							}
-							addInstruction(Instrs::ReadFR(subMemberVar->address() + offset, subMember->pos));
-							isTemporary = true;
-							isReference = true;
-							offset = subMemberVar->fixedOffset();
-							relAddr = 0;
-						} else {
-							if (not isTemporary) {
-								addInstruction(Instrs::ReadStackF(frameToStack(relAddr), subMember->pos));     //ReadStackF might leave a zombie, if value is temporary....
-							}
-							if (subMemberVar->address() != 0) {
-								//addInstruction(Instrs::IncR(subMemberVar->address(), subMember->pos));
-							}
-							isTemporary = true;
-							isReference = true;
-							offset += subMemberVar->address();
-							relAddr = 0;
-						}
-						break;
-					case ReferenceMode::HEAP_VAL:
-						if (isTemporary) {
-							addInstruction(Instrs::PopVal(subMember->pos));
-							isTemporary = false;
-						}
-						isReference = false;
-						offset = 0;
-						relAddr = subMemberVar->address();
-						refMode = ReferenceMode::HEAP_VAL;
-						break;
-					}
-				} else {
-					switch (subMemberVar->referenceMode()) {
-					case ReferenceMode::STACK_VAL:
-						if (subMemberVarType.isReference()) {
-							isReference = true;
-							offset = subMemberVar->fixedOffset();
-							relAddr += subMemberVar->address();
-							refMode = ReferenceMode::STACK_VAL;
-						} else {
-							relAddr += subMemberVar->address();
-						}
-						break;
-					case ReferenceMode::HEAP_VAL:
-						if (isTemporary) {
-							addInstruction(Instrs::PopVal(subMember->pos));
-							isTemporary = false;
-						}
-						isReference = false;
-						relAddr = subMemberVar->address();
-						refMode = ReferenceMode::HEAP_VAL;
-						break;
-					}
-				}
-				break;
-			case ReferenceMode::HEAP_VAL:
-				switch (subMemberVar->referenceMode()) {
-				case ReferenceMode::STACK_VAL:
-					if (subMemberVarType.isReference()) {
-						addInstruction(Instrs::ReadFA(subMemberVar->address(), subMember->pos));
-						isTemporary = true;
-						isReference = true;
-						offset = subMemberVar->fixedOffset();
-						relAddr = 0;
-					} else {
-						relAddr += subMemberVar->address();
-						isReference = false;
-					}
-					break;
-				case ReferenceMode::HEAP_VAL:
-					relAddr = subMemberVar->address();
-					refMode = ReferenceMode::HEAP_VAL;
-					isReference = false;
-					break;
-				}
-				break;
-			}
-			declType = subMemberVarType;
-			isConst |= subMemberVarIsConst;
+			variable = currentCodeBuilder()->accessMember3(variable, subMember->name, subMember->pos);
 		}
-
-		/*
-		while (not subMembers.empty()) {
-			auto subMember = subMembers.pop();
-			auto subMemberVar = declType.scope()->tryGetVariable(subMember->name);
-			if (not subMemberVar) {
-				throw SyntaxError(cat::SW() << "unknown member '" << subMember->name << "' in object of type " << declType.asCodeString() << ".", subMember->pos);
-			}
-
-			switch (refMode) {
-			case ReferenceMode::STACK_VAL:
-				switch (subMemberVar->referenceMode()) {
-				case ReferenceMode::STACK_VAL:
-					relAddr += subMemberVar->address();
-					break;
-				case ReferenceMode::HEAP_REF:
-					offset = subMemberVar->fixedOffset();
-					relAddr += subMemberVar->address();
-					refMode = ReferenceMode::HEAP_REF;
-					break;
-				case ReferenceMode::HEAP_VAL:
-					if (isTemporary) {
-						addInstruction(Instrs::PopVal(subMember->pos));
-						isTemporary = false;
-					}
-					relAddr = subMemberVar->address();
-					refMode = ReferenceMode::HEAP_VAL;
-					break;
-				}
-				break;
-
-			case ReferenceMode::HEAP_REF:
-				switch (subMemberVar->referenceMode()) {
-				case ReferenceMode::STACK_VAL:
-					if (not isTemporary) {
-						addInstruction(Instrs::ReadStackF(frameToStack(relAddr), subMember->pos));     //ReadStackF might leave a zombie, if value is temporary....
-					}
-					if (subMemberVar->address() != 0) {
-						//addInstruction(Instrs::IncR(subMemberVar->address(), subMember->pos));
-					}
-					isTemporary = true;
-					offset += subMemberVar->address();
-					relAddr = 0;
-					break;
-				case ReferenceMode::HEAP_REF:
-					if (not isTemporary) {
-						addInstruction(Instrs::ReadStackF(frameToStack(relAddr), subMember->pos));     //ReadStackF might leave a zombie, if value is temporary....
-					}
-					addInstruction(Instrs::ReadFR(subMemberVar->address() + offset, subMember->pos));
-					isTemporary = true;
-					offset = subMemberVar->fixedOffset();
-					relAddr = 0;
-					break;
-				case ReferenceMode::HEAP_VAL:
-					if (isTemporary) {
-						addInstruction(Instrs::PopVal(subMember->pos));
-						isTemporary = false;
-					}
-					offset = 0;
-					relAddr = subMemberVar->address();
-					refMode = ReferenceMode::HEAP_VAL;
-					break;
-				}
-				break;
-
-			case ReferenceMode::HEAP_VAL:
-				switch (subMemberVar->referenceMode()) {
-				case ReferenceMode::STACK_VAL:
-					relAddr += subMemberVar->address();
-					break;
-				case ReferenceMode::HEAP_REF:
-					addInstruction(Instrs::ReadFA(subMemberVar->address(), subMember->pos));
-					isTemporary = true;
-					offset = subMemberVar->fixedOffset();
-					relAddr = 0;
-					break;
-				case ReferenceMode::HEAP_VAL:
-					relAddr = subMemberVar->address();
-					refMode = ReferenceMode::HEAP_VAL;
-					break;
-				}
-				break;
-			}
-			declType = subMemberVar->type();
-			isConst |= subMemberVar->isConst();
-		}
-		*/
-
-		return std::make_pair(Variable(std::move(declType), relAddr, refMode, false, isConst, isTemporary, offset), isReference);
+		return variable;
 	} else {
 		const auto& name = variableRef->name;
-		return std::make_pair(*getVariable(name, variableRef->pos), false);
+		return IndirectAccess(Variable{*currentCodeBuilder()->getVariable(name, variableRef->pos)});
 	}
-
 }
 
-bool CodeGenerator::hasVariable(const cat::String& name) const
+IntermediateCodeBuilderWeakPtr CodeGenerator::currentCodeBuilder()
 {
-	return tryGetVariable(name) != nullptr;
+	if (_codeBuilderStack.empty()) {
+		return nullptr;
+	}
+	return _codeBuilderStack.peek().asStatic<IntermediateCodeBuilder>();
 }
 
-VariableCWeakPtr CodeGenerator::allocateStackVariable(const cat::String& name, TypeReference&& type, bool isConst, bool valuesAlreadyOnStack, const Position& pos)
+IntermediateCodeBuilderCWeakPtr CodeGenerator::currentCodeBuilder() const
 {
-	if (not valuesAlreadyOnStack) {
-		// we need to init:
-		defaultInit(type, pos);
-	}
-	auto variable = currentScope()->addVariable(name, new Variable(std::move(type), 0, ReferenceMode::STACK_VAL, true, isConst));
-	NGPL_ASSERT(tempsOnStack == int64_t(variable->fixedSize()));
-	tempsOnStack = 0;
-	return variable;
+	return _codeBuilderStack.peek().asStatic<IntermediateCodeBuilder>();
 }
 
-void CodeGenerator::defaultInit(const TypeReference& typeRef, const Position& pos) {
-	if (typeRef.isReference()) {
-		addInstruction(Instrs::PushNullR(pos));
-	} else if (not typeRef.baseType()->isBasic()) {
-		foreach_c(pair, typeRef.scope()->getVariables()) {
-			defaultInit(pair.second->type(), pos);
-		}
-	} else {
-		// we have a basic type:
-		if (cat::isAnyOf(typeRef.baseType()->name(), "Bool", "Int")) {
-			addInstruction(Instrs::PushInt(uint64_t(0), pos));
-		} else if (typeRef.baseType()->name() == "String") {
-			addInstruction(Instrs::PushStr("", pos));
-		} else {
-			NGPL_ASSERT2(false, "unknown basic type " + typeRef.baseType()->name());
-		}
-	}
-}
-
-BuiltinFunctionCWeakPtr CodeGenerator::tryGetBuiltinFunction(const cat::String& name, const CallArgTypes& argTypes)
+void CodeGenerator::pushCodeBuilder(intermediate::IntermediateCodeContainer& codeContainer, bool newStackFrame)
 {
-	return builtins.tryGetFunction(name, argTypes).asStatic<BuiltinFunction>();
+	_codeBuilderStack.push(new IntermediateCodeBuilder(&codeContainer, currentCodeBuilder(), newStackFrame));
 }
 
-FunctionBaseCWeakPtr CodeGenerator::getFunction(const cat::String& name, const CallArgTypes& argTypes, const Position& pos) const
+void CodeGenerator::popCodeBuilder()
 {
-	auto result = tryGetBuiltinFunction(name, argTypes);
-	if (result != nullptr) {
-		return result;
-	}
-
-	FunctionOverloadsCWeakPtr overloads = nullptr;
-	foreach_c(scope, cat::reversed(scopeStack)) {
-		if ((overloads = scope->tryGetFunctionOverloads(name))) {
-			if (auto func = overloads->tryGetOverload(argTypes)) {
-				return func;
-			}
-		}
-	}
-	if (overloads) {
-		auto errorDescr = cat::SW() << "no valid overload for function " << name << "(" << argTypes.asCodeString() << ").";
-		errorDescr << "Possible overloads are:";
-		errorDescr.incIndent();
-		foreach_c(overload, *overloads) {
-			errorDescr += cat::nlIndent;
-			errorDescr += overload->asCodeString();
-		}
-		throw SyntaxError(errorDescr, pos);
-	} else {
-		throw SyntaxError(cat::SW() << "no function named '" << name << "'.", pos);
-	}
+	_codeBuilderStack.pop();
 }
 
-bool CodeGenerator::hasFunction(const cat::String& name, const CallArgTypes& argTypes) const
-{
-	auto result = tryGetBuiltinFunction(name, argTypes);
-	if (result != nullptr) {
-		return true;
-	}
-
-	foreach_c(scope, cat::reversed(scopeStack)) {
-		if (auto func = scope->tryGetFunction(name, argTypes)) {
-			return true;
-		}
-	}
-	return false;
-}
-
-bool CodeGenerator::canAddFunction(const cat::String& name, const FunctionSignature& signature, cat::String& reasonOut) const
-{
-	cat::String reason;
-	if (not builtins.canAddFunction(name, signature, reasonOut)) {
-		return false;
-	}
-
-	if (not currentScope()->canAddFunction(name, signature, reasonOut)) {
-		return false;
-	}
-	reasonOut.clear();
-	return true;
-}
-
-TypeCWeakPtr CodeGenerator::tryGetType(const cat::String& name) const
-{
-	if (auto type = builtins.tryGetType(name)) {
-		return type;
-	}
-
-	foreach_c(scope, cat::reversed(scopeStack)) {
-		if (auto type = scope->tryGetType(name)) {
-			return type;
-		}
-	}
-	return nullptr;
-}
-
-TypeCWeakPtr CodeGenerator::getType(const cat::String& name, const Position& pos) const
-{
-	if (auto type = tryGetType(name)) {
-		return type;
-	} else {
-		throw SyntaxError(cat::SW() << "unknown type '" << name << "'.", pos);
-	}
-}
-
-bool CodeGenerator::hasType(const cat::String& name) const
-{
-	return tryGetType(name) != nullptr;
-}
-
-TypeReference CodeGenerator::getTypeRef(const cat::String& name, std::vector<TypeReference>&& arguments, bool isReference, const Position& pos) const
-{
-	auto typeRef = getType(name, pos);
-	return TypeReference(typeRef, std::move(arguments), isReference);
-}
 
 TypeReference CodeGenerator::getTypeRef(const TypeExprCWeakPtr typeExpr) const
 {
-	return getTypeRef(
+	return currentCodeBuilder()->getTypeRef(
 				typeExpr->name,
 				range(typeExpr->arguments).map_c(LAMBDA2(&, a){ return getTypeRef(a.weak()); }).toVector(),
-				typeExpr->isReference,
+				typeExpr->isPointer,
 				typeExpr->pos);
 }
 
 void CodeGenerator::checkType(const TypeReference& expectation, const TypeReference& reality, const Position& pos) const
 {
-	if (expectation != reality) {
+	if (not reality.isAssignableTo(expectation)) {
 		throw SyntaxError(cat::SW() << "expected expression returning " << expectation.asCodeString() << ", but got " << reality.asCodeString() << ".", pos);
 	}
 
 }
 
-void CodeGenerator::pushScope(bool newStackFrame)
-{
-	if (newStackFrame) {
-		scopeStack.emplace_back(new Scope(0));
-	} else {
-		auto currentSalt = currentScope()->getFrameSize();
-		scopeStack.emplace_back(new Scope(std::move(currentSalt)));
-	}
-//	saltCntr++;
-}
 
-void CodeGenerator::popScope()
-{
-	scopeStack.pop_back();
-}
-
-Address CodeGenerator::frameToStack(Address a) const
-{
-	return currentScope()->getFrameSize() + tempsOnStack - a - 1;
-}
-
-void CodeGenerator::refFromVariable(VariableCWeakPtr variable, const Position& pos)
-{
-	switch (variable->referenceMode()) {
-	case ReferenceMode::STACK_VAL: {
-		if (variable->isReference()) {
-			// everything 's fine already!
-			if (not variable->isTemporary()) {
-				auto stackPos = frameToStack(variable->address());
-				addInstruction(Instrs::ReadStackF(stackPos, pos));
-			}
-			// NGPL_ASSERT2(variable->isTemporary(), "Cannot handle non temporaries yet");
-			// TODO: maybe copy if not temporary?
-		} else {
-			auto stackPos = frameToStack(variable->address());
-			addInstruction(Instrs::PushStackR(stackPos, pos));
-		}
-	} break;
-	case ReferenceMode::HEAP_VAL: {
-		auto stackPos = variable->address();
-		addInstruction(Instrs::PushGlobalsR(stackPos, pos));
-	} break;
-	}
-}
-
-void CodeGenerator::readFromVariable(VariableCWeakPtr variable, bool isReference, const Position& pos)
-{
-	switch (variable->referenceMode()) {
-	case ReferenceMode::STACK_VAL:
-		if (variable->isReference() or isReference) {
-			readFromHeapD(variable->address(), variable->type().fixedSize(), variable->fixedOffset(), pos);
-			//throw cat::Exception("invalid referenceMode: HEAP_REF cannot be used yet");
-		} else {
-			readFromStackFrameF(variable->address(), variable->fixedSize(), pos);
-		}
-		break;
-	case ReferenceMode::HEAP_VAL:
-		readFromHeapF(variable->address(), variable->type().fixedSize(), pos);
-		break;
-	}
-}
-
-void CodeGenerator::writeToVariable(VariableCWeakPtr variable, bool isReference, const Position& pos)
-{
-	Address stackAddress;
-	switch (variable->referenceMode()) {
-	case ReferenceMode::STACK_VAL:
-		if (variable->isReference() or isReference) {
-			stackAddress = variable->address();
-	//		if (not variable->isTemporary()) {
-	//			addInstruction(Instrs::ReadStackF(frameToStack(variable->address()), pos));
-	//			stackAddress = 0;
-	//		} else {
-	//			stackAddress = variable->address();
-	//		}
-			writeToHeapD(stackAddress, variable->type().fixedSize(), variable->fixedOffset(), variable->isTemporary(), pos);
-			//throw cat::Exception("invalid referenceMode: HEAP_REF cannot be used yet");
-		} else {
-			writeToStackFrameF(variable->address(), variable->fixedSize(), pos);
-		}
-		break;
-	case ReferenceMode::HEAP_VAL:
-		writeToHeapF(variable->address(), variable->type().fixedSize(), pos);
-		break;
-	}
-}
-
-void CodeGenerator::readFromStackFrameF(Address relAddr, Address amount, const Position& pos)
-{
-	const auto stackAddr = frameToStack(relAddr);
-	for (auto i = amount; i --> 0;) {
-		addInstruction(Instrs::ReadStackF(stackAddr, pos));
-	}
-}
-
-void CodeGenerator::writeToStackFrameF(Address relAddr, Address amount, const Position& pos)
-{
-	const auto stackAddr = frameToStack(relAddr) - amount + 1;
-	for (auto i = amount; i --> 0;) {
-		addInstruction(Instrs::WriteStackF(stackAddr, pos));
-	}
-}
-
-void CodeGenerator::readFromStackFrameD(Address relAddr, Address amount, Address fixedOffset, const Position& pos)
-{
-	NGPL_ASSERT(relAddr == 0);
-	//auto stackAddrAddr = (currentScope()->getFrameSize() + tempsOnStack - relAddr - 1);
-	auto stackAddr = frameToStack(0) + 1; // amount ;//- 1; // amount + 1;
-	//addInstruction(Instrs::ReadStackF(stackAddrAddr, pos));
-	if (amount == 0) {
-		addInstruction(Instrs::PopVal(pos));
-		return;
-	}
-	for (auto i = amount; i --> 1;) {
-		addInstruction(Instrs::Dup(0, pos));
-		addInstruction(Instrs::ReadStackD(stackAddr, pos));
-		addInstruction(Instrs::Swap(pos));
-	}
-	addInstruction(Instrs::ReadStackD(stackAddr, pos));
-//	for (auto i = amount; i --> 0;) {
-//		addInstruction(Instrs::ReadStackD(stackAddr, pos));
-//		addInstruction(Instrs::WriteStackF(i+1, pos));
-//		stackAddr -= 2;
-//	}
-}
-
-void CodeGenerator::writeToStackFrameD(Address relAddr, Address amount, Address fixedOffset, const Position& pos)
-{
-	NGPL_ASSERT(relAddr == 0);
-	NGPL_ASSERT2(false, "TBD!");
-//	auto stackAddrAddr = (currentScope()->getFrameSize() + tempsOnStack - relAddr);//+1;
-//	const auto stackAddr = (currentScope()->getFrameSize() + tempsOnStack) - amount;//+1;
-	auto stackAddr = frameToStack(0) + 2;
-	for (auto i = amount; i --> 0;) {
-		addInstruction(Instrs::Dup(0, pos));
-		addInstruction(Instrs::ReadStackF(stackAddr, pos));
-
-
-//		addInstruction(Instrs::ReadStackF(stackAddrAddr, pos));
-//		addInstruction(Instrs::WriteStackD(stackAddr, pos));
-//		stackAddrAddr -= 1;
-	}
-}
-
-void CodeGenerator::readFromHeapF(Address addr, Address amount, const Position& pos)
-{
-	auto heapAddr = addr;
-	for (auto i = amount; i --> 0;) {
-		addInstruction(Instrs::ReadFA(heapAddr, pos));
-		heapAddr += 1;
-	}
-}
-
-void CodeGenerator::writeToHeapF(Address addr, Address amount, const Position& pos)
-{
-	auto heapAddr = addr + amount - 1;
-	for (auto i = amount; i --> 0;) {
-		addInstruction(Instrs::WriteFA(heapAddr, pos));
-		heapAddr -= 1;
-	}
-}
-
-void CodeGenerator::readFromHeapD(Address relAddr, Address amount, Address fixedOffset, const Position& pos)
-{
-//	auto stackAddrAddr = (currentScope()->getFrameSize() + tempsOnStack - relAddr - 1);
-//	const auto stackAddr = currentScope()->getFrameSize() + tempsOnStack - 1 + 1;
-//	for (auto i = amount; i --> 0;) {
-//		addInstruction(Instrs::ReadStackF(stackAddrAddr, pos));
-//		addInstruction(Instrs::ReadFR(stackAddr, pos));
-//		stackAddrAddr += 1;
-//	}
-
-	NGPL_ASSERT(relAddr == 0);
-	//auto stackAddrAddr = (currentScope()->getFrameSize() + tempsOnStack - relAddr - 1);
-	//auto stackAddr = frameToStack(0) + 1; // amount ;//- 1; // amount + 1;
-	//addInstruction(Instrs::ReadStackF(stackAddrAddr, pos));
-	if (amount == 0) {
-		addInstruction(Instrs::PopVal(pos));
-		return;
-	}
-	for (auto i = amount; i --> 1;) {
-		addInstruction(Instrs::Dup(0, pos));
-		addInstruction(Instrs::ReadFR(fixedOffset, pos));
-		addInstruction(Instrs::Swap(pos));
-	}
-	addInstruction(Instrs::ReadFR(fixedOffset, pos));
-}
-
-void CodeGenerator::writeToHeapD(Address relAddr, Address amount, Address fixedOffset, bool isTemprary, const Position& pos)
-{
-	NGPL_ASSERT(relAddr == 0);
-	auto stackAddrAddr = frameToStack(relAddr);  // (currentScope()->getFrameSize() + tempsOnStack - relAddr);//+1;
-	//NGPL_ASSERT(stackAddrAddr == amount); // amount+1 maybe?
-
-	if (amount == 0) {
-		if (isTemprary) {
-			addInstruction(Instrs::PopVal(pos));
-		}
-		return;
-	}
-	for (auto i = amount; i --> 1;) {
-		addInstruction(Instrs::ReadStackF(stackAddrAddr, pos));
-		addInstruction(Instrs::Swap(pos));
-		addInstruction(Instrs::WriteFR(i + fixedOffset, pos));
-		stackAddrAddr -= 1;
-	}
-	if (not isTemprary) {
-		addInstruction(Instrs::ReadStackF(stackAddrAddr, pos));
-		addInstruction(Instrs::Swap(pos));
-	}
-	addInstruction(Instrs::WriteFR(0 + fixedOffset, pos));
-}
-
-void CodeGenerator::cleanupStack(uint16_t amount, const Position& pos)
-{
-	NGPL_ASSERT(tempsOnStack == 0);
-	for (auto i = amount; i --> 0;) {
-		addInstruction(Instrs::PopVal(pos));
-	}
-	tempsOnStack = 0;
-}
 
 
 }

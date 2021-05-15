@@ -17,26 +17,36 @@
 
 namespace ngpl::util::debug {
 
-class AssertionError: public cat::Exception {
+class AssertionError final : public cat::Exception {
 public:
 	AssertionError(const cat::String& message, const cat::String& filePath, uint32_t lineNo)
 	: Exception(message + "\n  AssertionError in file: '" + filePath + "', at line " + std::to_string(lineNo) + ".")
 	{}
+
+private:
+	AssertionError(const cat::String& text)
+	: Exception(text)
+	{}
+public:
+
+	virtual AssertionError* makeCopy() const override {
+		return new AssertionError(*this);
+	}
 };
 
 #if defined(_UNICODE) || defined(UNICODE)
 static inline void ngpl_assert(bool condition, const cat::String& msg, const wchar_t* fileName, unsigned lineNo) {
 	if (not condition) {
-	const std::wstring fileNameWs(fileName);
-	const cat::String fileNameS(fileNameWs.begin(), fileNameWs.end());
-	throw AssertionError(msg, fileNameS, lineNo);
+		const std::wstring fileNameWs(fileName);
+		const cat::String fileNameS(fileNameWs.begin(), fileNameWs.end());
+		throw AssertionError(msg, fileNameS, lineNo);
 	}
 }
 #else // defined(_UNICODE) || defined(UNICODE)
 static inline void ngpl_assert(bool condition, const cat::String& msg, const char* fileName, unsigned lineNo) {
 	if (not condition) {
-	const cat::String fileNameS(fileName);
-	throw AssertionError(msg, fileNameS, lineNo);
+		const cat::String fileNameS(fileName);
+		throw AssertionError(msg, fileNameS, lineNo);
 	}
 }
 #endif // defined(_UNICODE) || defined(UNICODE)
@@ -51,11 +61,11 @@ static inline void NOP() {} // null operation
 #undef NGPL_ASSERT
 #if DEBUG_ASSERTIONS
 	#if defined(_UNICODE) || defined(UNICODE)
-	#define NGPL_ASSERT(condition) ngpl::util::debug::ngpl_assert(condition, #condition, _CRT_WIDE(__FILE__), __LINE__)
-	#define NGPL_ASSERT2(condition, msg) ngpl::util::debug::ngpl_assert(condition, msg, _CRT_WIDE(__FILE__), __LINE__)
+		#define NGPL_ASSERT(condition) ngpl::util::debug::ngpl_assert(condition, #condition, _CRT_WIDE(__FILE__), __LINE__)
+		#define NGPL_ASSERT2(condition, msg) ngpl::util::debug::ngpl_assert(condition, msg, _CRT_WIDE(__FILE__), __LINE__)
 	#else // defined(_UNICODE) || defined(UNICODE)
-	#define NGPL_ASSERT(condition) ngpl::util::debug::ngpl_assert(condition, #condition, __FILE__, __LINE__);
-	#define NGPL_ASSERT2(condition, msg) ngpl::util::debug::ngpl_assert(condition, msg, __FILE__, __LINE__);
+		#define NGPL_ASSERT(condition) ngpl::util::debug::ngpl_assert(condition, #condition, __FILE__, __LINE__);
+		#define NGPL_ASSERT2(condition, msg) ngpl::util::debug::ngpl_assert(condition, msg, __FILE__, __LINE__);
 	#endif // defined(_UNICODE) || defined(UNICODE)
 
 #else // DEBUG_ASSERTIONS

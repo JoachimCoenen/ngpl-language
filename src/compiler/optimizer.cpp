@@ -57,8 +57,8 @@ struct BreakOutInfo {
 //	if (slcs.size() == 0) {
 //		return;
 //	}
-//	const auto slSize = slcs.cbegin()->getStack().size();
-//	NGPL_ASSERT(cat::range(slcs).all_c(LAMBDA2(slSize, v) { return v.getStack().size() == slSize; }));
+//	const auto slSize = slcs.cbegin()->stackSize();
+//	NGPL_ASSERT(cat::range(slcs).all_c(LAMBDA2(slSize, v) { return v.stackSize() == slSize; }));
 
 //	std::vector<TaggedValueWeakPtr> thenBranch;
 //	std::vector<TaggedValueWeakPtr> elseBranch;
@@ -134,7 +134,7 @@ public:
 			case InstrID::NOP: {
 			} break;
 			case InstrID::DUP: {
-				stackLayout.readValue(0);
+				stackLayout.readValue(0_sa);
 			} break;
 			case InstrID::SWP: {
 				stackLayout.swap();
@@ -172,13 +172,13 @@ public:
 			} break;
 
 			case InstrID::READ_STCK_F: {
-				stackLayout.readValue(instr->data().getValue<int64_t>());
+				stackLayout.readValue(instr->data().getValue<StackAddr>());
 			} break;
 			case InstrID::READ_STCK_D: {
 		//		Address addr = Address(_temporaryStack.size()) - data.getValue<int64_t>() - 1;
 		//		addr -= _temporaryStack.pop().getValue<int64_t>();
 				// TODO: resolve actual changes to stack!
-				auto instruct = SimpleInstrPtr({}, instr->id(), stackLayout.getAbsoluteAddress(instr->data().getValue<Address>()), instr->pos());
+				auto instruct = SimpleInstrPtr({}, instr->id(), instr->data().getValue<StackAddr>(), instr->pos());
 				auto arg = stackLayout.popValue();
 
 				stackLayout.pushValue(std::nullopt, stackLayout.addSimpleInstrWithSideEffect(std::move(instruct), {arg}));
@@ -188,13 +188,13 @@ public:
 			} break;
 
 			case InstrID::WRITE_STCK_F: {
-				stackLayout.writeValue(instr->data().getValue<int64_t>());
+				stackLayout.writeValue(instr->data().getValue<StackAddr>());
 			} break;
 			case InstrID::WRITE_STCK_D: {
 		//		Address addr = Address(_temporaryStack.size()) - data.getValue<int64_t>() - 1;
 		//		addr -= _temporaryStack.pop().getValue<int64_t>();
 				// TODO: resolve actual changes to stack!
-				auto instruct = SimpleInstrPtr({}, instr->id(), stackLayout.getAbsoluteAddress(instr->data().getValue<Address>()), instr->pos());
+				auto instruct = SimpleInstrPtr({}, instr->id(), instr->data().getValue<StackAddr>(), instr->pos());
 				auto arg1 = stackLayout.popValue();
 				stackLayout.addSimpleInstrWithSideEffect(std::move(instruct), {arg1});
 				//stackLayout.invalidate();
@@ -420,15 +420,16 @@ public:
 		}
 
 		// thenStackLayout and elseStackLayout should have the same size:
-		NGPL_ASSERT(thenStackLayout.getStack().size() == elseStackLayout.getStack().size());
+		NGPL_ASSERT(thenStackLayout.stackSize() == elseStackLayout.stackSize());
 		stackLayout = thenStackLayout.newScenarioFromThis();
 
 		std::vector<TaggedValueWeakPtr> thenBranch;
 		std::vector<TaggedValueWeakPtr> elseBranch;
 
-		for (size_t i = 0; i < thenStackLayout.getStack().size(); ++i) {
-			auto thenVal = thenStackLayout.getStack().at(i);
-			auto elseVal = elseStackLayout.getStack().at(i);
+		auto thenStackLayoutSize = FrameAddr(thenStackLayout.stackSize());
+		for (FrameAddr i = 0_fa; i < thenStackLayoutSize; ++i) {
+			auto thenVal = thenStackLayout.at(i);
+			auto elseVal = elseStackLayout.at(i);
 			if (thenVal->id != elseVal->id) {
 
 				stackLayout.pushValue(std::nullopt, ifInstruct);
@@ -562,7 +563,7 @@ public:
 
 
 		if (stackLayout1.isValid()) {
-			auto returnArgs = cat::IntRange(0ull, stackLayout1.getStack().size()).map_c(LAMBDA2(&stackLayout1, i){ return stackLayout1.getStack()[i]; }).toVector();
+			auto returnArgs = cat::IntRange(0ull, stackLayout1.stackSize()).map_c(LAMBDA2(&stackLayout1, i){ return stackLayout1.getStack()[i]; }).toVector();
 //			if (not stackLayout.getAllInstructionsWithSideEffect().empty()) {
 //				args.push_back(stackLayout.getAllInstructionsWithSideEffect().back());
 //			}
@@ -979,8 +980,8 @@ public:
 			StackLayoutScenario& stackLayout,
 			IntermediateCode& intermediateCode
 	) {
-		NGPL_ASSERT(fromRel >= 0 and fromRel < Address(stackLayout.getStack().size()));
-		NGPL_ASSERT(toRel >= -1 and toRel < Address(stackLayout.getStack().size()));
+		NGPL_ASSERT(fromRel >= 0 and fromRel < Address(stackLayout.stackSize()));
+		NGPL_ASSERT(toRel >= -1 and toRel < Address(stackLayout.stackSize()));
 		NGPL_ASSERT(stackLayout.getValue(fromRel)->usageCount > 0);
 
 		if (fromRel == toRel) {

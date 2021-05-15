@@ -75,7 +75,7 @@ void Linker::generateInstructionStream(ScopeCWeakPtr scope)
 			  .map_c(LAMBDA(typePair) { return typePair.second.weak(); })
 	) {
 		_functionEntryPoints[type->asQualifiedCodeString()] = _instructions.size();
-		generateInstructionStream(type->scope());
+		generateInstructionStream(type->scope().weak());
 		generateInstructionStream(&type->body());
 	}
 

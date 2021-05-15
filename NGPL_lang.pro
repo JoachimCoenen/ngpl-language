@@ -33,6 +33,7 @@ SOURCES += \
 	src/main.cpp \
 	src/mainHelper.cpp \
 	src/util/instructionID.cpp \
+	src/util/types.cpp \
 	src/vm/callStack.cpp \
 	src/vm/instruction.cpp \
 	src/vm/instructionExecuter.cpp \

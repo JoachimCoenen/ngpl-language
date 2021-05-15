@@ -25,12 +25,14 @@ VariableCWeakPtr Scope::addVariable(const cat::String& name, VariablePtr&& varia
 
 void Scope::addType(const cat::String& name, TypePtr&& type)
 {
-	NGPL_ASSERT2(types.find(name) == types.end(), "type " + name + " is already in types!");
-	(types[name] = std::move(type)).weak();
+	NGPL_ASSERT2(types.find(name) == types.end(), "Type " + name + " is already in types!");
+	NGPL_ASSERT2(type->name() == name, "Names don't match: type.name()='" + type->name() + "', but name='" + name + "'!");
+	types[name] = std::move(type);
 }
 
-FunctionBaseWeakPtr Scope::addFunction(FunctionBasePtr&& function)
+FunctionBaseWeakPtr Scope::addFunction(const cat::String& name, FunctionBasePtr&& function)
 {
+	NGPL_ASSERT2(function->name() == name, "Names don't match: function.name()='" + function->name() + "', but name='" + name + "'!");
 	auto funcWeakPtr = function.weak();
 	auto& overloads = functions[function->name()];
 	cat::String reason;
@@ -70,13 +72,13 @@ FunctionOverloadsCWeakPtr Scope::tryGetFunctionOverloads(const cat::String& name
 	return nullptr;
 }
 
-FunctionBaseCWeakPtr Scope::tryGetFunction(const cat::String& name, const CallArgTypes& argTypes) const
+FunctionBaseCWeakPtr Scope::tryGetFunction(const cat::String& name, const CallArgs& args) const
 {
 	//bool hasFoundName = false;
 	auto functionsIt = functions.find(name);
 	if (functionsIt != functions.end()) {
 		//hasFoundName = true;
-		return functionsIt->second.tryGetOverload(argTypes);
+		return functionsIt->second.tryGetOverload(args);
 	}
 	return nullptr;
 }

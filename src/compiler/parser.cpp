@@ -98,14 +98,17 @@ StatementPtr Parser::parseStatement()
 
 DeclarationPtr Parser::tryParseDeclaration()
 {
-	if (wouldAcceptToken("let")) {
-		return parseConstDeclaration();
-	}
-	if (wouldAcceptToken("var")) {
+	if (wouldAcceptAnyOfToken({"var", "let"})) {
 		return parseVarDeclaration();
 	}
 	if (wouldAcceptToken("func")) {
 		return parseFuncDeclaration();
+	}
+	if (wouldAcceptToken("ctor")) {
+		return parseCtorDeclaration();
+	}
+	if (wouldAcceptToken("dtor")) {
+		return parseDtorDeclaration();
 	}
 	if (wouldAcceptToken("type")) {
 		return parseTypeDeclaration();
@@ -132,7 +135,7 @@ FuncDeclarationPtr Parser::parseFuncDeclaration()
 
 	TypeExprPtr returnType = nullptr;
 	if (tryAcceptToken("->")) {
-	returnType = parseTypeExpr();
+		returnType = parseTypeExpr();
 	}
 	acceptToken("{");
 	auto block = parseBlock({"}"});
@@ -141,19 +144,50 @@ FuncDeclarationPtr Parser::parseFuncDeclaration()
 	return {new FuncDeclaration{std::move(name), std::move(returnType), std::move(parameters), std::move(block), pos}};
 }
 
+CtorDeclarationPtr Parser::parseCtorDeclaration()
+{
+	auto pos = acceptToken("ctor").pos;
+	cat::String name;
+	if (auto nameToken = tryAcceptToken(TokenKind::IDENTIFIER)) {
+		name = nameToken.value().content;
+	}
+
+	auto parameters = parseParameters();
+
+	acceptToken("{");
+	auto block = parseBlock({"}"});
+	acceptToken("}");
+
+	return new CtorDeclaration{std::move(name), std::move(parameters), std::move(block), pos};
+}
+
+DtorDeclarationPtr Parser::parseDtorDeclaration()
+{
+	auto pos = acceptToken("dtor").pos;
+
+	acceptToken("(");
+	acceptToken(")");
+
+	acceptToken("{");
+	auto block = parseBlock({"}"});
+	acceptToken("}");
+
+	return new DtorDeclaration{std::move(block), pos};
+}
+
 std::vector<ParamDeclarationPtr> Parser::parseParameters()
 {
 	std::vector<ParamDeclarationPtr> result;
 	acceptToken("(");
 	if (wouldAcceptToken(")")) {
-	acceptToken(")");
-	return result;
+		acceptToken(")");
+		return result;
 	}
 
 
 	result.push_back(parseParameter());
 	while (tryAcceptToken(",")) {
-	result.push_back(parseParameter());
+		result.push_back(parseParameter());
 	}
 	acceptToken(")");
 
@@ -170,30 +204,11 @@ ParamDeclarationPtr Parser::parseParameter()
 
 }
 
-ConstDeclarationPtr Parser::parseConstDeclaration()
-{
-	auto pos = acceptToken("let").pos;
-
-	auto name = acceptToken(TokenKind::IDENTIFIER);
-
-	TypeExprPtr type = nullptr;
-	if (tryAcceptToken(":")) {
-	type = parseTypeExpr();
-	}
-
-	ExpressionPtr initExpr = nullptr;
-	if (tryAcceptToken("=")) {
-		initExpr = parseExpression();
-	} else {
-		throw SyntaxError(cat::SW() << "Missing initialisatipn of constant '" << name.content << "'.", name.pos);
-	}
-
-	return {new ConstDeclaration{std::move(name.content), std::move(type), std::move(initExpr), pos}};
-}
-
 VarDeclarationPtr Parser::parseVarDeclaration()
 {
-	auto pos = acceptToken("var").pos;
+	auto token = acceptAnyOfToken({"var", "let"});
+	auto pos = token.pos;
+	const bool isConst = token.content == "let";
 	auto nameTk = acceptToken(TokenKind::IDENTIFIER);
 
 	TypeExprPtr type = nullptr;
@@ -204,9 +219,11 @@ VarDeclarationPtr Parser::parseVarDeclaration()
 	ExpressionPtr initExpr = nullptr;
 	if (tryAcceptToken("=")) {
 		initExpr = parseExpression();
+	} else if (isConst) {
+		throw SyntaxError(cat::SW() << "Missing initialisatipn of constant '" << nameTk.content << "'.", nameTk.pos);
 	}
 
-	return {new VarDeclaration{std::move(nameTk.content), std::move(type), std::move(initExpr), pos}};
+	return {new VarDeclaration{std::move(nameTk.content), std::move(type), std::move(initExpr), isConst, pos}};
 }
 
 TypeDeclarationPtr Parser::parseTypeDeclaration()
@@ -310,6 +327,9 @@ ExpressionPtr Parser::parseExpressionNoOp()
 	case TokenKind::BOOLEAN:
 	expr = parseBoolean();
 	break;
+	case TokenKind::NIL:
+	expr = parseNil();
+	break;
 	case TokenKind::IDENTIFIER:
 	expr = parseVarReferenceOrFunctionCall();
 	break;
@@ -347,8 +367,8 @@ ExpressionPtr Parser::parseExpression()
 	cat::Stack<Token> operStack;
 	exprStack.push(parseExpressionNoOp());
 
-	while (wouldAcceptToken(TokenKind::OPERATOR)) {
-		operStack.push(acceptToken(TokenKind::OPERATOR));
+	while (auto token = tryAcceptToken(TokenKind::OPERATOR)) {
+		operStack.push(token.value());
 		exprStack.push(parseExpressionNoOp());
 	}
 
@@ -472,6 +492,12 @@ LiteralBoolPtr Parser::parseBoolean()
 	return {new LiteralBool{ token.content == "true", token.pos}};
 }
 
+LiteralNilPtr Parser::parseNil()
+{
+	const auto token = acceptToken(TokenKind::NIL);
+	return {new LiteralNil{token.pos}};
+}
+
 LiteralIntPtr Parser::parseInteger()
 {
 	const auto token = acceptToken(TokenKind::NUMBER);
@@ -504,14 +530,15 @@ bool Parser::wouldAcceptAnyOfToken(const std::initializer_list<cat::String>& str
 	return cat::isAnyOf_alt(currentToken().content, strs);
 }
 
-bool Parser::tryAcceptToken(TokenKind kind)
+std::optional<Token> Parser::tryAcceptToken(TokenKind kind)
 {
 	if (wouldAcceptToken(kind)) {
 		checkNotEndOfStream(kind); // throws
+		auto token = currentToken();
 		tokenizer.advance();
-		return true;
+		return token;
 	}
-	return false;
+	return std::nullopt;
 }
 
 bool Parser::tryAcceptToken(const cat::String& str)
@@ -547,7 +574,6 @@ Token Parser::acceptToken(TokenKind kind)
 	if (not wouldAcceptToken(kind)) {
 		throw SyntaxError(cat::SW() << "Expected " << kind << ", but got " << token.kind << " "<< cat::formatVal(token.content) << ".", token.pos);
 	}
-
 	tokenizer.advance();
 	return token;
 }
@@ -557,9 +583,7 @@ Token Parser::acceptToken(const cat::String& str)
 	checkNotEndOfStream(str);
 	auto token = currentToken();
 	if (not wouldAcceptToken(str)) {
-		auto token = currentToken();
-		auto sE = SyntaxError(cat::SW() << "Expected " << cat::formatVal(str) << ", but got " << cat::formatVal(token.content) << ".", token.pos);
-		throw sE;
+		throw SyntaxError(cat::SW() << "Expected " << cat::formatVal(str) << ", but got " << cat::formatVal(token.content) << ".", token.pos);
 	}
 
 	tokenizer.advance();
@@ -573,7 +597,7 @@ Token Parser::acceptAnyOfToken(const std::initializer_list<cat::String>& strs)
 	checkNotEndOfStream(cat::range(strsv).join(sep));
 	auto token = currentToken();
 	if (not wouldAcceptAnyOfToken(strs)) {
-		auto token = currentToken();
+
 		auto sE = SyntaxError(cat::SW() << "Expected " << cat::range(strsv).join(sep) << ", but got " << cat::formatVal(token.content) << ".", token.pos);
 		throw sE;
 	}

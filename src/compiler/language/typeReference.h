@@ -11,26 +11,33 @@ struct TypeReference {
 private:
 	TypeCWeakPtr _baseType;
 	std::vector<TypeReference> _arguments;
-	bool _isReference;
+	bool _isPointer;
 
 public:
-	TypeReference(TypeCWeakPtr baseType, std::vector<TypeReference>&& arguments, bool isReference);
+	TypeReference(TypeCWeakPtr baseType, std::vector<TypeReference>&& arguments, bool isPointer);
 
-//	inline TypeReference(TypeCDynamicPtr&& baseType, bool isReference = false)
-//		: TypeReference(std::move(baseType), {}, isReference)
-//	{}
-	inline TypeReference(const TypeCWeakPtr& baseType, bool isReference = false)
-		: TypeReference(baseType, {}, isReference)
+	inline TypeReference(TypeCWeakPtr baseType, bool isPointer = false)
+		: TypeReference(baseType, {}, isPointer)
 	{}
 
-	TypeReference asReference() {
-		return TypeReference( baseType(), std::vector<TypeReference>{arguments()}, true);
+	inline TypeReference(const TypeReference& typeRef, bool isPointer)
+		: TypeReference(typeRef.baseType(), std::vector(typeRef.arguments()), isPointer)
+	{}
+
+	TypeReference asPointer() const {
+		return TypeReference( baseType(), std::vector(arguments()), true);
+	}
+
+	TypeReference asValue() const {
+		return TypeReference( baseType(), std::vector(arguments()), false);
 	}
 
 	TypeCWeakPtr baseType() const noexcept { return _baseType; }
 	const std::vector<TypeReference>& arguments() const { return _arguments; }
-	bool isReference() const noexcept { return _isReference or _baseType->isClass(); }
+	bool isPointer() const noexcept { return _isPointer or _baseType->isClass(); }
 	bool isGeneric() const noexcept { return not _arguments.empty(); }
+
+	bool isAssignableTo(const TypeReference& destination) const;
 
 	uint64_t fixedSize() const;
 	ScopeCWeakPtr scope() { return _baseType->scope(); }
@@ -57,7 +64,7 @@ struct std::hash<ngpl::TypeReference> {
 		size_t result = 0xd6a7f393910ec6a9; // a random number
 		result = cat::combineHashes(result, cat::hash(v.baseType()));
 		result = cat::combineHashes(result, cat::hash(v.arguments()));
-		result = cat::combineHashes(result, cat::hash(v.isReference()));
+		result = cat::combineHashes(result, cat::hash(v.isPointer()));
 		return result;
 	}
 };

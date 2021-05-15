@@ -6,22 +6,19 @@
 
 namespace ngpl {
 
-#define GETVAL(index, type) args.pop().getValue<type>()
-
-#define BI_OP(op_, rType, argsType, rcType, type, instrs) #op_, "", rType, {argsType, argsType}, false, [](CallStack& args){ auto rhs = GETVAL(0, type); auto lhs = GETVAL(1, type); return rcType(lhs op_ rhs); }, instrs
-#define UN_OP(op_, rType, argType, rcType, type, instrs) #op_, "", rType, {argType}, false, [](CallStack& args){ auto rhs = GETVAL(0, type); return rcType(op_ rhs); }, instrs
-
 struct BuiltinsScopeBuilder {
+public:
+	using SimpleParameters = cat::DynArray<std::pair<cat::String, cat::String>>;
 private:
-	Scope scope{0};
+	Scope scope{0_fa};
 
-	FunctionSignature makeSignature(cat::DynArray<cat::String> argTypes, const cat::String& retType) const
+	FunctionSignature makeSignature(const SimpleParameters& params, const cat::String& retType) const
 	{
 		FunctionSignature signature {
-			cat::range(argTypes)
-				.map(LAMBDA2(&,t) { return TypeReference{scope.tryGetType(t)}; })
+			cat::range(params)
+					.map(LAMBDA2(&, param) { return Parameter(param.first, getBuiltinTypeRef(scope, param.second, {})); })
 				.toContainer2<cat::DynArray>(),
-			TypeReference{scope.tryGetType(retType)}
+					getBuiltinTypeRef(scope, retType, {})
 		};
 		return signature;
 	}
@@ -38,15 +35,15 @@ public:
 		const cat::String& name,
 		const cat::String& qualifier,
 		const cat::String& retType,
-		const cat::DynArray<cat::String>& argTypes,
+		const SimpleParameters& params,
 		bool hasSideEffect,
 		const BuiltinFunctionBody& body,
 		const std::optional<std::vector<InstructionID>>& instructions
 	)
 	{
-		auto signature = makeSignature(argTypes, retType);
+		auto signature = makeSignature(params, retType);
 		BuiltinFunctionPtr func{{}, name, qualifier, std::move(signature), hasSideEffect, body, instructions};
-		scope.addFunction(std::move(func));
+		scope.addFunction(name, std::move(func));
 		return *this;
 	}
 
@@ -54,8 +51,11 @@ public:
 
 };
 
-#define BI_OP(op_, rType, argsType, rcType, type, instrs) #op_, "", rType, {argsType, argsType}, false, [](CallStack& args){ auto rhs = GETVAL(0, type); auto lhs = GETVAL(1, type); return rcType(lhs op_ rhs); }, instrs
-//#op_, "", rType, {argsType, argsType}, false, [](CallStack& args){ auto rhs = GETVAL(0, type); auto lhs = GETVAL(1, type); return rcType(lhs op_ rhs); }, instrs
+
+#define GETVAL(index, type) args.pop().getValue<type>()
+// #define BI_OP(op_, rType, argsType, rcType, type, instrs) #op_, "", rType, {argsType, argsType}, false, [](CallStack& args){ auto rhs = GETVAL(0, type); auto lhs = GETVAL(1, type); return rcType(lhs op_ rhs); }, instrs
+#define UN_OP(op_, rType, argType, rcType, type, instrs) #op_, "", rType, {{"operand", argType}}, false, [](CallStack& args){ auto rhs = GETVAL(0, type); return rcType(op_ rhs); }, instrs
+#define BI_OP(op_, rType, argsType, rcType, type, instrs) #op_, "", rType, {{"lhs", argsType}, {"rhs", argsType}}, false, [](CallStack& args){ auto rhs = GETVAL(0, type); auto lhs = GETVAL(1, type); return rcType(lhs op_ rhs); }, instrs
 
 Scope makeBuiltinsScope() {
 	BuiltinsScopeBuilder builtins{};
@@ -80,6 +80,7 @@ Scope makeBuiltinsScope() {
 
 	builtins.addFunc(BI_OP(==, "Bool", "Int", int64_t, int64_t, std::nullopt));
 	builtins.addFunc(BI_OP(==, "Bool", "String", int64_t, cat::String, std::nullopt));
+	builtins.addFunc(BI_OP(==, "Bool", "Any&", int64_t, Reference, std::nullopt));
 
 	builtins.addFunc(BI_OP(!=, "Bool", "Int", int64_t, int64_t, {{InstructionID::XOR}}));
 	builtins.addFunc(BI_OP(!=, "Bool", "String", int64_t, cat::String, std::nullopt));
@@ -93,10 +94,16 @@ Scope makeBuiltinsScope() {
 	builtins.addFunc(BI_OP(>=, "Bool", "Int", int64_t, int64_t, std::nullopt));
 
 	builtins.addFunc(BI_OP(or, "Bool", "Bool", int64_t, int64_t,  std::nullopt));
-
 	builtins.addFunc(BI_OP(and, "Bool", "Bool", int64_t, int64_t,  std::nullopt));
 
-	builtins.addFunc("print", "", "None", {"Bool"}, true,
+	builtins.addFunc("memalloc", "", "Any&", {{"size", "Int"}}, true,
+		[](CallStack& args) {
+			GETVAL(0, int64_t);
+			return None();
+		}
+	, {{InstructionID::HEAP_ALLOC}});
+
+	builtins.addFunc("print", "", "None", {{"v", "Bool"}}, true,
 		[](CallStack& args) {
 			cat::OW out = cat::OW(std::cout);
 			out += GETVAL(0, int64_t) ? "true" : "false";
@@ -104,7 +111,7 @@ Scope makeBuiltinsScope() {
 			return None();
 		}
 	, std::nullopt);
-	builtins.addFunc("print", "", "None", {"Int"}, true,
+	builtins.addFunc("print", "", "None", {{"v", "Int"}}, true,
 		[](CallStack& args) {
 			cat::OW out = cat::OW(std::cout);
 			out += GETVAL(0, int64_t);
@@ -112,7 +119,7 @@ Scope makeBuiltinsScope() {
 			return None();
 		}
 	, std::nullopt);
-	builtins.addFunc("print", "", "None", {"String"}, true,
+	builtins.addFunc("print", "", "None", {{"v", "String"}}, true,
 		[](CallStack& args) {
 			cat::OW out = cat::OW(std::cout);
 			out += GETVAL(0, cat::String);
@@ -129,26 +136,26 @@ Scope makeBuiltinsScope() {
 		}
 	, std::nullopt);
 
-	builtins.addFunc( "Int", "", "Int", {"String"}, false,
+	builtins.addFunc( "Int", "", "Int", {{"v", "String"}}, false,
 		[](CallStack& args) {
 			return std::stoll(GETVAL(0, cat::String));
 		}
 	, std::nullopt);
 
-	builtins.addFunc( "String", "", "String", {"Int"}, false,
+	builtins.addFunc( "String", "", "String", {{"v", "Int"}}, false,
 		[](CallStack& args) {
 			return std::to_string   (GETVAL(0, int64_t));
 		}
 	, std::nullopt);
 
-	builtins.addFunc( "sqr", "", "Int", {"Int"}, false,
+	builtins.addFunc( "sqr", "", "Int", {{"v", "Int"}}, false,
 		[](CallStack& args) {
 			const auto v = GETVAL(0, int64_t);
 			return v * v;
 		}
 	, std::nullopt);
 
-	builtins.addFunc( "combine", "", "Int", {"Int", "Int", "Int"}, false,
+	builtins.addFunc( "combine", "", "Int", {{"v1", "Int"}, {"v2", "Int"}, {"v3", "Int"}}, false,
 		[](CallStack& args) {
 		const auto v0 = GETVAL(0, int64_t);
 		const auto v1 = GETVAL(0, int64_t);
@@ -162,23 +169,23 @@ Scope makeBuiltinsScope() {
 
 const Scope builtins = makeBuiltinsScope();
 
-TypeReference getBuiltinTypeRef(const cat::String& name, std::vector<TypeReference>&& arguments, bool isReference)
+TypeReference getBuiltinTypeRef(const ngpl::Scope& scope, const cat::String& name, std::vector<TypeReference>&& arguments, bool isReference)
 {
-	auto type = builtins.tryGetType(name);
+	auto type = scope.tryGetType(name);
 	NGPL_ASSERT(type != nullptr);
 	return TypeReference(type, std::move(arguments), isReference);
 }
 
-TypeReference getBuiltinTypeRef(const cat::String& name, std::vector<TypeReference>&& arguments)
+TypeReference getBuiltinTypeRef(const ngpl::Scope& scope, const cat::String& name, std::vector<TypeReference>&& arguments)
 {
 	bool isReference = (name).back() == '&';
 	cat::String typeName;
 	if (isReference) {
-		typeName = name.substr(0, (name).size() - 2);
+		typeName = name.substr(0, (name).size() - 1);
 	} else {
 		typeName = name;
 	}
-	return getBuiltinTypeRef(typeName, std::move(arguments), isReference);
+	return getBuiltinTypeRef(scope, typeName, std::move(arguments), isReference);
 }
 
 }

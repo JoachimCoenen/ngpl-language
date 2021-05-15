@@ -15,19 +15,15 @@ Unit::Unit(const cat::String& name, ScopeSharedPtr&& scope, UnitNature unitNatur
 
 cat::WriterObjectABC& Unit::print(cat::WriterObjectABC& s) const
 {
-	s+= cat::nlIndent;
-	s += "unit ";
-	s += name();
+	s += cat::nlIndent;
+	s << "unit " << name();
 
-	s.incIndent();
-	{
+	WITH(cat::Indentation(s)) {
 		scope()->print(s);
 		s += cat::nl;
 		body().print(s);
-	}
-	s.decIndent();
-
-   return s;
+	} END_WITH;
+	return s;
 }
 
 }

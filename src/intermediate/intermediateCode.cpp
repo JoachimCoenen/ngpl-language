@@ -12,7 +12,7 @@ IntermediateInstruction::IntermediateInstruction()
 }
 
 IntermediateSimpleInstruction::IntermediateSimpleInstruction(InstructionID id,
-		const SimpleInstructionData& data,
+		const InstructionData& data,
 		const Position& pos
 )
 	: IntermediateInstruction(),
@@ -53,7 +53,7 @@ cat::WriterObjectABC& IntermediateSimpleInstruction::print(cat::WriterObjectABC&
 		dataStr = static_cast<const FunctionBase*>(data().getValue<const void*>())->asQualifiedCodeString();
 	}
 	s += dataStr;
-	s += cat::String(std::max(2ll, 35 - int64_t(dataStr.length())), ' ');
+	s += cat::String(std::max(2ll, 60 - int64_t(dataStr.length())), ' ');
 	s +=  _pos.line();
 	return s;
 }
@@ -179,6 +179,7 @@ cat::WriterObjectABC& IntermediateSpecial::print(cat::WriterObjectABC& s) const
 
 cat::WriterObjectABC& IntermediateCodeContainer::print(cat::WriterObjectABC& s) const
 {
+	printErrorList(s);
 	foreach_c(instr, instructions) {
 		instr->print(s);
 	}
@@ -198,6 +199,26 @@ bool IntermediateCodeContainer::hasSideEffect() const
 bool IntermediateCodeContainer::isEmpty() const
 {
 	return this->instructions.empty();
+}
+
+void IntermediateCodeContainer::addError(CompileErrorPtr&& error)
+{
+	_compileErrors.push_back(std::move(error));
+}
+
+void IntermediateCodeContainer::printErrorList(cat::WriterObjectABC& s) const
+{
+	foreach_c(error, _compileErrors) {
+		s += cat::nlIndent;
+		s << "ERROR: " << error->message();
+	}
+	if (not _compileErrors.empty()) {
+		s += cat::nl;
+	}
+}
+
+cat::WriterObjectABC& operator +=(cat::WriterObjectABC& s, [[maybe_unused]]const IntermediateInstruction& v) {
+	return s << "IntermediateInstruction(...)";
 }
 
 }

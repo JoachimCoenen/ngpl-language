@@ -22,6 +22,10 @@ public:
 	const Instruction& instruction() const { return _instruction; }
 	const cat::String& rawMessage() const { return _rawMessage; }
 
+	virtual ExecutionError* makeCopy() const override {
+		return new ExecutionError(*this);
+	}
+
 protected:
 	Instruction _instruction;
 	cat::String _rawMessage;
@@ -48,8 +52,9 @@ public:
 	cat::DynArray<Value>::iterator _stackTopPtr;
 	cat::Stack<uint64_t> _programmCounterStack;
 	cat::SharedPtr<cat::DynArray<Value>> _globals;
+	std::deque<cat::DynArray<Value>> _heap;
 
-	bool _printStacklayout = false;
+	bool _printStacklayout = true;
 
 protected:
 	ExecutionError nullPointerException(const Instruction&instruction);

@@ -12,7 +12,9 @@ cat::WriterObjectABC& operator +=(cat::WriterObjectABC& s, const TokenKind& v) {
    FORMAT_ENUM_VAL_CASE(TokenKind, NUMBER);
    FORMAT_ENUM_VAL_CASE(TokenKind, STRING);
    FORMAT_ENUM_VAL_CASE(TokenKind, BOOLEAN);
+   FORMAT_ENUM_VAL_CASE(TokenKind, NIL);
    FORMAT_ENUM_VAL_CASE(TokenKind, COMMENT);
+   FORMAT_ENUM_VAL_CASE(TokenKind, EOF_TOKEN);
 	}
 	return s;
 }

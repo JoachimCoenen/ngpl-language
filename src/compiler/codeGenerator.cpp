@@ -58,35 +58,43 @@ TypeReference CodeGenerator::evalLiteral(LiteralCWeakPtr literal)
 	auto ccb = currentCodeBuilder();
 	if (auto literalBool = literal.as<LiteralBool>()) {
 		ccb->addInstruction(Instrs::PushInt(uint64_t(literalBool->get()), literalBool->pos));
-		return TypeReference(ccb->getType("Bool", literal->pos), {}, false);
+		return TypeReference(ccb->getType("Bool", literal->pos), {}, 0, false);
 	}
 	if (auto literalInt = literal.as<LiteralInt>()) {
 		ccb->addInstruction(Instrs::PushInt(literalInt->get(), literalInt->pos));
-		return TypeReference(ccb->getType("Int", literal->pos), {}, false);
+		return TypeReference(ccb->getType("Int", literal->pos), {}, 0, false);
 	}
 	if (auto literalString = literal.as<LiteralString>()) {
 		ccb->addInstruction(Instrs::PushStr(literalString->get(), literalString->pos));
-		return  TypeReference(ccb->getType("String", literal->pos), {}, false);
+		return  TypeReference(ccb->getType("String", literal->pos), {}, 0, false);
 	}
 	if (auto literalString = literal.as<LiteralNil>()) {
 		ccb->addInstruction(Instrs::PushNullR(literalString->pos));
-		return  TypeReference(ccb->getType("Any", literal->pos), {}, true);
+		return  TypeReference(ccb->getType("Any", literal->pos), {}, 0, true);
 	}
 
 
-	throw SyntaxError(cat::SW() << "Unknown Literal type! (compiler is broken!)'" << literal->getTypeName() << "'.", literal->pos);
+	throw SemanticsError(cat::SW() << "Unknown Literal type! (compiler is broken!)'" << literal->getTypeName() << "'.", literal->pos);
 }
 
-TypeReference CodeGenerator::evalExpression(ExpressionCWeakPtr expr, bool asReference)
+TypeReference CodeGenerator::evalExpression(ExpressionCWeakPtr expr, bool asRValRef, bool asLValRef)
 {
+	NGPL_ASSERT(not (asRValRef and asLValRef));
 	uint32_t oldTempsOnStack = currentCodeBuilder()->tempsOnStack();
-	auto result = _evalExpression_(expr, asReference);
-	ASSERT_TEMPS_ON_STACK(currentCodeBuilder(), oldTempsOnStack + (asReference ? 1 : (int64_t)result.fixedSize()), expr->pos);
+	auto result = _evalExpression_(expr, asRValRef, asLValRef);
+	if (asRValRef) {
+		ASSERT_TEMPS_ON_STACK(currentCodeBuilder(), oldTempsOnStack + 1, expr->pos);
+	} else if (asLValRef) {
+		ASSERT_TEMPS_ON_STACK(currentCodeBuilder(), oldTempsOnStack + 1, expr->pos);
+	} else {
+		ASSERT_TEMPS_ON_STACK(currentCodeBuilder(), oldTempsOnStack + (int64_t)result.fixedSize(), expr->pos);
+	}
 	return result;
 }
 
-TypeReference CodeGenerator::_evalExpression_(ExpressionCWeakPtr expr, bool asReference)
+TypeReference CodeGenerator::_evalExpression_(ExpressionCWeakPtr expr, bool asRValRef, bool asLValRef)
 {
+	const bool asReference = asRValRef;
 	if (auto literal = expr.as<Literal>()) {
 		NGPL_COMPILER_ASSERT2(not asReference, "cannot reference literals", expr->pos);
 		return evalLiteral(literal);
@@ -104,8 +112,9 @@ TypeReference CodeGenerator::_evalExpression_(ExpressionCWeakPtr expr, bool asRe
 		}
 	}
 
+	std::optional<TypeReference> returnType;
+
 	if (auto funcCall = expr.as<FunctionCall>()) {
-		NGPL_COMPILER_ASSERT2(not asReference, "cannot reference FunctionCall", expr->pos);
 		const auto& name = funcCall->name;
 
 		if (name == "memalloc") {
@@ -116,11 +125,11 @@ TypeReference CodeGenerator::_evalExpression_(ExpressionCWeakPtr expr, bool asRe
 		TypeReference parentType = NONE_TYPE();
 		const bool isMethod = funcCall->parent != nullptr;
 		if (isMethod) {
-			parentType = evalExpression(funcCall->parent.weak(), asReference=true);
+			parentType = evalExpression(funcCall->parent.weak(), asRValRef=true);
 		} else if (TypeCWeakPtr ctorType = currentCodeBuilder()->tryGetType(funcCall->name)) {
 			if (not ctorType->isBasic()) {
 				isNonBasicCtor = true;
-				currentCodeBuilder()->allocateStackTemporary(ctorType, funcCall->pos);
+				currentCodeBuilder()->allocateStackTemporary(TypeReference(ctorType, 0), funcCall->pos);
 			}
 		}
 
@@ -133,10 +142,7 @@ TypeReference CodeGenerator::_evalExpression_(ExpressionCWeakPtr expr, bool asRe
 
 		FunctionBaseCWeakPtr func;
 		if (isMethod) {
-			func = parentType.scope()->tryGetFunction(name, {std::move(args)});
-			if (not func) {
-				throw SyntaxError(cat::SW() << "unknown member '" << funcCall->name << "' in object of type " << parentType.asQualifiedCodeString() << ".", funcCall->pos);
-			}
+			func = currentCodeBuilder()->getMethod(parentType, name, {std::move(args)}, funcCall->pos);
 		} else if (isNonBasicCtor){
 			func = currentCodeBuilder()->getCtor(name, {std::move(args)}, funcCall->pos);
 		} else {
@@ -145,35 +151,82 @@ TypeReference CodeGenerator::_evalExpression_(ExpressionCWeakPtr expr, bool asRe
 
 		currentCodeBuilder()->callFunction(func, funcCall->pos);
 
-		return func->returnType();
+		returnType = func->returnType();
 	}
 
-	if (auto operCall = expr.as<BinaryOperatorCall>()) {
-		NGPL_COMPILER_ASSERT2(not asReference, "cannot reference BinaryOperatorCall", operCall->pos);
+	else if (auto operCall = expr.as<BinaryOperatorCall>()) {
 		const auto& name = operCall->name;
 		cat::DynArray<Argument> args {
 			/*lhs*/ Argument(this->evalExpression(operCall->lhs.weak())),
 			/*rhs*/ Argument(this->evalExpression(operCall->rhs.weak()))
 		};
-		args = {args.rbegin(), args.rend()};
+
 		const auto& func = currentCodeBuilder()->getFunction(name, std::move(args), operCall->pos);
 		currentCodeBuilder()->callFunction(func, operCall->pos);
 
-		return func->returnType();
+		returnType = func->returnType();
 	}
-	if (auto operCall = expr.as<UnaryOperatorCall>()) {
-	NGPL_COMPILER_ASSERT2(not asReference, "cannot reference UnaryOperatorCall", operCall->pos);
-	const auto& name = operCall->name;
-	cat::DynArray<Argument> args {
-		Argument(this->evalExpression(operCall->operand.weak())),
-	};
-	const auto& func = currentCodeBuilder()->getFunction(name, std::move(args), operCall->pos);
-	currentCodeBuilder()->callFunction(func, operCall->pos);
 
-	return func->returnType();
-}
+	else if (auto operCall = expr.as<UnaryOperatorCall>()) {
+		const auto& name = operCall->name;
 
-	throw SyntaxError(cat::SW() << "Unknow ExpressinType '" << expr->getTypeName() << "'.", expr->pos);
+		if (name == "&") {
+			// don't use evalExpression(...)! use: evalVariableReference(...)!
+			throw SemanticsError(cat::SW() << "Future only!", expr->pos);
+		}
+
+		cat::DynArray<Argument> args {
+			Argument(this->evalExpression(operCall->operand.weak())),
+		};
+
+		if (name == "^") {
+			auto& arg = args[0].type();
+			if (not arg.isPointer()) {
+				throw SemanticsError(cat::SW() << "cannot dereference non-pointer '" << arg.asCodeString() << "'.", expr->pos);
+			}
+			if (asReference) {
+				// do nothin'
+				return arg.asPointerLess().asReference();
+			} else {
+				return currentCodeBuilder()->dereferenceVariable(args[0].type(), operCall->pos);
+
+			}
+		}
+		const auto& func = currentCodeBuilder()->getFunction(name, std::move(args), operCall->pos);
+		currentCodeBuilder()->callFunction(func, operCall->pos);
+
+		returnType = func->returnType();
+	}
+
+	else if (auto sizeOfExpr = expr.as<SizeOfExpression>()) {
+		std::cout << "sizeOf" << std::endl;
+		auto type = getTypeRef(sizeOfExpr->type.weak());
+
+		auto size = type.fixedSize();
+		currentCodeBuilder()->addInstruction(Instrs::PushInt(size, sizeOfExpr->pos));
+		return TypeReference(currentCodeBuilder()->getType("Int", sizeOfExpr->pos), {}, 0);
+	}
+
+	if (not returnType.has_value()) {
+		throw SemanticsError(cat::SW() << "Unknow ExpressinType '" << expr->getTypeName() << "'.", expr->pos);
+	}
+
+
+	if (asReference) {
+		if (returnType.value().isPointer()) {
+			return returnType.value().asPointerLess().asReference();
+		} else if (returnType.value().isClass()) {
+			// everything's OK!
+			return returnType.value().asReference();
+		} else if (returnType.value().isReference()) {
+			// NOP; everything's OK!
+			return returnType.value();
+		} else {
+			throw SemanticsError(cat::SW() << "Cannot reference temprary vaues '" << expr->getTypeName() << "'.", expr->pos);
+		}
+	} else {
+		return returnType.value();
+	}
 }
 
 void CodeGenerator::evalStatement(StatementCWeakPtr stmt)
@@ -222,7 +275,7 @@ void CodeGenerator::evalStatement(StatementCWeakPtr stmt)
 		const auto conditionType = evalExpression(whileControl->condition.weak());
 		checkType(BOOL_TYPE(), conditionType, whileControl->condition->pos);
 
-		itm::IntermediateIf* ifInstr = new itm::IntermediateIf(false, {}, {}, whileControl->pos);
+		itm::IntermediateIf* ifInstr = new itm::IntermediateIf(true, {}, {}, whileControl->pos);
 		currentCodeBuilder()->addIf(ifInstr);
 
 		pushCodeBuilder(ifInstr->ifCode, false);
@@ -241,7 +294,7 @@ void CodeGenerator::evalStatement(StatementCWeakPtr stmt)
 		if (functionStack.peek()->isCtor()) {
 			//checkType(variable->type(), type, returnStmt->expr->pos);
 		} else {
-			checkType(variable->type(), type, returnStmt->expr->pos);
+			checkType(variable->type(), type, returnStmt->pos);
 			// "save" result:
 			currentCodeBuilder()->writeToVariable(IndirectAccess(Variable{*variable}), returnStmt->pos);
 		}
@@ -254,7 +307,7 @@ void CodeGenerator::evalStatement(StatementCWeakPtr stmt)
 	}
 
 	else {
-		throw SyntaxError(cat::SW() << "Unknow StatementType '" << stmt->getTypeName() << "'.", stmt->pos);
+		throw SemanticsError(cat::SW() << "Unknow StatementType '" << stmt->getTypeName() << "'.", stmt->pos);
 	}
 
 	ASSERT_NO_TEMPS_ON_STACK(currentCodeBuilder(), stmt->pos);
@@ -274,7 +327,10 @@ void CodeGenerator::evalBlock(BlockCWeakPtr block, bool pushScope)
 	} catch (util::debug::AssertionError& ex) {
 		currentCodeBuilder()->logError(new WrappingCompileError(ex.makeCopy(), std::nullopt));
 	} catch (SyntaxError& ex) {
+		currentCodeBuilder()->logError(ex.makeCopy());
 		throw ex;
+	} catch (SemanticsError& ex) {
+		currentCodeBuilder()->logError(ex.makeCopy());
 	} catch (CompileError& ex) {
 		currentCodeBuilder()->logError(ex.makeCopy());
 	}
@@ -307,7 +363,7 @@ void CodeGenerator::evalFunctionSignature(const FunctionSignature& signature, co
 	foreach_c(param, signature.parameters()) {
 		const auto& name = param.name();
 		if (currentCodeBuilder()->hasLocalVariable(name)) {
-			throw SyntaxError(cat::SW() << "redefinition of '" << name << "'.", pos);
+			throw SemanticsError(cat::SW() << "redefinition of '" << name << "'.", pos);
 		}
 		// auto relAddr = currentCodeBuilder()->addVariable(name, type);
 		currentCodeBuilder()->addVariable(name, new Variable(param.type(), 0_fa, ReferenceMode::STACK_VAL, true, false));
@@ -336,7 +392,7 @@ void CodeGenerator::evalDeclaration(const DeclarationCWeakPtr& decl)
 		evalTypeDeclaration(typeDecl);
 	}
 	else {
-		throw SyntaxError("Future syntax not supported yet.", decl->pos);
+		throw SemanticsError("Future syntax not supported yet.", decl->pos);
 	}
 
 	ASSERT_NO_TEMPS_ON_STACK(currentCodeBuilder(), decl->pos);
@@ -347,13 +403,13 @@ void CodeGenerator::evalVarDeclaration(const VarDeclarationCWeakPtr& varDecl)
 	const auto& name = varDecl->name;
 	cat::String reasonOut;
 	if (not currentCodeBuilder()->canAddVariable(name, reasonOut)) {
-		throw SyntaxError(reasonOut, varDecl->pos);
+		throw SemanticsError(reasonOut, varDecl->pos);
 	}
 
+	ASSERT_NO_TEMPS_ON_STACK(currentCodeBuilder(), varDecl->pos);
 	std::optional<TypeReference> type = std::nullopt;
 	bool valuesAlreadyOnStack = false;
 	if (varDecl->initExpr) {
-		ASSERT_NO_TEMPS_ON_STACK(currentCodeBuilder(), varDecl->pos);
 		valuesAlreadyOnStack = true;
 		type = evalExpression(varDecl->initExpr.weak());
 		ASSERT_TEMPS_ON_STACK(currentCodeBuilder(), int64_t(type->fixedSize()), varDecl->pos);
@@ -371,15 +427,15 @@ void CodeGenerator::evalVarDeclaration(const VarDeclarationCWeakPtr& varDecl)
 	if (not declType) {
 		declType = type;
 	}
-	if (not declType->baseType()->isFinished() and not declType->isPointer()) {
-		throw SyntaxError(cat::SW() << "Illegal use of unfinished type '" << type->asCodeString() << "'.", varDecl->pos);
+	if (not declType->baseType()->isFinished() and not declType->isRepresentedByReference()) {
+		throw SemanticsError(cat::SW() << "Illegal use of unfinished type '" << type->asCodeString() << "'.", varDecl->pos);
 	}
 
 	const bool isConst = varDecl->isConst;
 	const bool isGlobal = this->isGlobal();
 	if (isGlobal) {
 		currentCodeBuilder()->allocateHeapVariable(name, TypeReference{*declType}, isConst, valuesAlreadyOnStack, varDecl->pos);
-//			throw SyntaxError(cat::SW() << "global variables not implemented yet.", varDecl->pos);
+//			throw SemanticsError(cat::SW() << "global variables not implemented yet.", varDecl->pos);
 
 //			auto variable = currentCodeBuilder()->addVariable(name, new Variable(TypeReference{*declType}, staticHeapSize, ReferenceMode::HEAP_VAL, true, isConst));
 //			staticHeapSize += variable->type().fixedSize();
@@ -407,7 +463,7 @@ void CodeGenerator::evalFuncDeclaration(const FuncDeclarationCWeakPtr& funcDecl)
 
 	cat::String reasonOut;
 	if (not currentCodeBuilder()->canAddFunction(name, signature, reasonOut)) {
-		throw SyntaxError(reasonOut, funcDecl->pos);
+		throw SemanticsError(reasonOut, funcDecl->pos);
 	}
 
 	const auto qualifier = isMethod ? selfType->asQualifiedCodeString() + "." : "";
@@ -419,7 +475,7 @@ void CodeGenerator::evalFuncDeclaration(const FuncDeclarationCWeakPtr& funcDecl)
 
 	// handle self reference:
 	if (isMethod) {
-		currentCodeBuilder()->addVariable("self", new Variable(TypeReference{selfType, true}, 0_fa, ReferenceMode::STACK_VAL, true, false));
+		currentCodeBuilder()->addVariable("self", new Variable(TypeReference{selfType, 0, true}, 0_fa, ReferenceMode::STACK_VAL, true, false));
 	}
 	// handle function Signature:
 	evalFunctionSignature(function->signature(), funcDecl->pos);
@@ -442,21 +498,21 @@ void CodeGenerator::evalCtorDeclaration(const CtorDeclarationCWeakPtr& ctorDecl)
 	bool isMethod = selfType != nullptr;
 
 	if (not isMethod) {
-		SyntaxError("Constructors are only allowed inside of types.", ctorDecl->pos);
+		SemanticsError("Constructors are only allowed inside of types.", ctorDecl->pos);
 	}
 	if (not ctorDecl->name.empty()) {
-		throw SyntaxError("Named constructors are not supported yet.", ctorDecl->pos);
+		throw SemanticsError("Named constructors are not supported yet.", ctorDecl->pos);
 	}
 
 	// return type:
-	TypeReference returnType = TypeReference(selfType, false);
+	TypeReference returnType = TypeReference(selfType, 0);
 	FunctionSignature signature = makeFunctionSignature(ctorDecl->parameters, std::move(returnType));
 
 	const cat::String name = "*ctor";
 
 	cat::String reasonOut;
 	if (not currentCodeBuilder()->canAddFunction(name, signature, reasonOut)) {
-		throw SyntaxError(reasonOut, ctorDecl->pos);
+		throw SemanticsError(reasonOut, ctorDecl->pos);
 	}
 
 	const auto qualifier = selfType->asQualifiedCodeString() + ".";
@@ -467,7 +523,7 @@ void CodeGenerator::evalCtorDeclaration(const CtorDeclarationCWeakPtr& ctorDecl)
 	functionStack.push(ctor);
 
 	// handle self reference:
-	currentCodeBuilder()->addVariable("self", new Variable(TypeReference{selfType, false}, 0_fa, ReferenceMode::STACK_VAL, true, false));
+	currentCodeBuilder()->addVariable("self", new Variable(TypeReference{selfType, 0, false}, 0_fa, ReferenceMode::STACK_VAL, true, false));
 
 	// handle function Signature:
 	evalFunctionSignature(ctor->signature(), ctorDecl->pos);
@@ -493,7 +549,7 @@ void CodeGenerator::evalCtorDeclaration(const CtorDeclarationCWeakPtr& ctorDecl)
 
 void CodeGenerator::evalDtorDeclaration(const DtorDeclarationCWeakPtr& dtorDecl)
 {
-	throw SyntaxError("Future syntax not supported yet.", dtorDecl->pos);
+	throw SemanticsError("Future syntax not supported yet.", dtorDecl->pos);
 }
 
 void CodeGenerator::evalTypeDeclaration(const TypeDeclarationCWeakPtr& typeDecl)
@@ -501,7 +557,7 @@ void CodeGenerator::evalTypeDeclaration(const TypeDeclarationCWeakPtr& typeDecl)
 	const auto& name = typeDecl->name;
 	cat::String reasonOut;
 	if (not currentCodeBuilder()->canAddType(name, reasonOut)) {
-		throw SyntaxError(reasonOut, typeDecl->pos);
+		throw SemanticsError(reasonOut, typeDecl->pos);
 	}
 
 	TypeWeakPtr parentType = typeStack.empty() ? nullptr : typeStack.peek();
@@ -513,7 +569,7 @@ void CodeGenerator::evalTypeDeclaration(const TypeDeclarationCWeakPtr& typeDecl)
 	} else if (auto structDecl = typeDecl.as<ClassDeclaration>()) {
 		type = new Type(name, qualifier, 0 , TypeKind::CLASS_LIKE);
 	} else {
-		throw SyntaxError("Future syntax not supported yet.", typeDecl->pos);
+		throw SemanticsError("Future syntax not supported yet.", typeDecl->pos);
 	}
 
 	currentCodeBuilder()->addType(name, TypePtr(type.getPtr()));
@@ -556,7 +612,7 @@ cat::WriterObjectABC& CodeGenerator::toString(cat::WriterObjectABC& s) const
 namespace ngpl::compiler {
 
 
-IndirectAccess CodeGenerator::evalVariableReference(const VariableReferenceCWeakPtr& variableRef)
+IndirectAccess CodeGenerator::evalVariableReference(const ExpressionCWeakPtr& variableRef)
 {
 	if (auto member = variableRef.as<MemberAccess>()) {
 		cat::Stack<MemberAccessCWeakPtr> subMembers;
@@ -567,20 +623,29 @@ IndirectAccess CodeGenerator::evalVariableReference(const VariableReferenceCWeak
 				subMembers.push(parent);
 			}
 		}
-		auto parent = subMembers.peek()->parent.as<VariableReference>();
-		if (not parent) {
-			throw SyntaxError(cat::SW() << "Accessing members of expressions is currently not supported.", variableRef->pos);
+		auto parent = subMembers.peek()->parent.weak();
+
+		std::optional<IndirectAccess> variable;
+		if (auto varRef = parent.as<VariableReference>()) {
+			variable = IndirectAccess(Variable(*currentCodeBuilder()->getVariable(varRef->name, parent->pos)));
+		} else {
+			auto typeRef = evalExpression(parent, true);
+			variable = IndirectAccess(currentCodeBuilder()->getTopStackTemporary(typeRef));
 		}
 
-		IndirectAccess variable = IndirectAccess(Variable(*currentCodeBuilder()->getVariable(parent->name, parent->pos)));
 		while (not subMembers.empty()) {
 			auto subMember = subMembers.pop();
-			variable = currentCodeBuilder()->accessMember3(variable, subMember->name, subMember->pos);
+			variable = currentCodeBuilder()->accessMember3(variable.value(), subMember->name, subMember->pos);
 		}
-		return variable;
+		return std::move(variable.value());
+
+	} else if (auto member = variableRef.as<VariableReference>()){
+		const auto& name = member->name;
+		return IndirectAccess(Variable{*currentCodeBuilder()->getVariable(name, member->pos)});
 	} else {
-		const auto& name = variableRef->name;
-		return IndirectAccess(Variable{*currentCodeBuilder()->getVariable(name, variableRef->pos)});
+		auto typeRef = evalExpression(variableRef, true);
+		auto variable = IndirectAccess(currentCodeBuilder()->getTopStackTemporary(typeRef));
+		return variable;
 	}
 }
 
@@ -613,14 +678,14 @@ TypeReference CodeGenerator::getTypeRef(const TypeExprCWeakPtr typeExpr) const
 	return currentCodeBuilder()->getTypeRef(
 				typeExpr->name,
 				range(typeExpr->arguments).map_c(LAMBDA2(&, a){ return getTypeRef(a.weak()); }).toVector(),
-				typeExpr->isPointer,
+				typeExpr->pointerDepth,
 				typeExpr->pos);
 }
 
 void CodeGenerator::checkType(const TypeReference& expectation, const TypeReference& reality, const Position& pos) const
 {
 	if (not reality.isAssignableTo(expectation)) {
-		throw SyntaxError(cat::SW() << "expected expression returning " << expectation.asCodeString() << ", but got " << reality.asCodeString() << ".", pos);
+		throw SemanticsError(cat::SW() << "expected expression of type " << expectation.asCodeString() << ", but got " << reality.asCodeString() << ".", pos);
 	}
 
 }

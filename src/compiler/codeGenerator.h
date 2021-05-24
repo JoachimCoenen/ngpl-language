@@ -27,9 +27,6 @@ namespace ngpl::compiler {
 PTRS_FOR_CLASS(IntermediateCodeBuilder);
 //class IntermediateCodeBuilder;
 
-using BuiltinTypesMap = std::unordered_map<cat::String, TypeCPtr>;
-using BuiltinFunctionsMap = std::unordered_map<cat::String, FunctionOverloads>;
-
 class CodeGenerator
 {
 private:
@@ -49,9 +46,9 @@ public:
 
 
 	TypeReference evalLiteral(LiteralCWeakPtr literal);
-	TypeReference evalExpression(ExpressionCWeakPtr expr, bool asReference = false);
+	TypeReference evalExpression(ExpressionCWeakPtr expr, bool asRValRef = false, bool asLValRef = false);
 private:
-	TypeReference _evalExpression_(ExpressionCWeakPtr expr, bool asReference = false);
+	TypeReference _evalExpression_(ExpressionCWeakPtr expr, bool asRValRef = false, bool asLValRef = false);
 public:
 	void evalStatement(StatementCWeakPtr stmt);
 	void evalBlock(BlockCWeakPtr block, bool pushScope = true);
@@ -76,7 +73,7 @@ public:
 protected:
 	using InterInstr = intermediate::IntermediateSimpleInstruction;
 
-	IndirectAccess evalVariableReference(const VariableReferenceCWeakPtr& variable);
+	IndirectAccess evalVariableReference(const ExpressionCWeakPtr& variable);
 
 	IntermediateCodeBuilderWeakPtr currentCodeBuilder();
 	IntermediateCodeBuilderCWeakPtr currentCodeBuilder() const;

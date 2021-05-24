@@ -32,7 +32,7 @@ public:
 	TypeDeclarationPtr parseTypeDeclaration();
 	std::vector<DeclarationPtr> parseTypeBody();
 
-	AssignmentPtr parseAssignment(VariableReferencePtr&& variableReference);
+	AssignmentPtr parseAssignment(ExpressionPtr&& variableReference);
 	IfControlPtr parseIfControl();
 	WhileControlPtr parseWhileControl();
 	ReturnStatementPtr parseReturnStatement();
@@ -45,6 +45,7 @@ public:
 	BlockPtr parseBlock(const std::initializer_list<cat::String>& endMarkers);
 	ExpressionPtr parseVarReferenceOrFunctionCall();
 	UnaryOperatorCallPtr parseUnaryOperator();
+	ExpressionPtr tryParseUnaryPostFixOperator();
 
 	std::vector<TypeExprPtr> parseTypeArguments();
 	std::vector<ExpressionPtr> parseTuple();
@@ -67,6 +68,7 @@ protected:
 	bool tryAcceptToken(const cat::String& str);
 	bool tryAcceptAnyOfToken(const std::initializer_list<cat::String>& strs);
 
+	Token acceptToken();
 	Token acceptToken(TokenKind kind);
 	Token acceptToken(const cat::String& str);
 	Token acceptAnyOfToken(const std::initializer_list<cat::String>& strs);

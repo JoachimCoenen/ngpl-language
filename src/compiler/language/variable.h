@@ -58,12 +58,18 @@ public:
 
 	ReferenceMode referenceMode() const { return _referenceMode; }
 
-	bool isPointer() const { return _type.isPointer(); }
-	bool isConst() const { return _isConst; }
-	bool isOwning() const { return _isOwning; }
-	bool isTemporary() const { return _isTemporary; }
+	inline int pointerDepth() const { return _type.pointerDepth(); }
+	inline bool isPointer() const { return _type.isPointer(); }
+	inline bool isReference() const { return _type.isReference(); }
+	inline bool isClass() const { return _type.isClass(); }
+	inline bool isReferenceOrClass() const { return _type.isReferenceOrClass(); }
+	inline bool isRepresentedByReference() const { return _type.isRepresentedByReference(); }
 
-	Address fixedOffset() const { return _fixedOffset; } // only for reference variables, offset relaive to the reference target
+	inline bool isConst() const { return _isConst; }
+	inline bool isOwning() const { return _isOwning; }
+	inline bool isTemporary() const { return _isTemporary; }
+
+	inline Address fixedOffset() const { return _fixedOffset; } // only for reference variables, offset relaive to the reference target
 
 	uint64_t fixedSize() const;
 protected:

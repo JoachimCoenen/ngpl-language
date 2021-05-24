@@ -69,31 +69,19 @@ StatementPtr Parser::parseStatement()
 		return parseReturnStatement();
 	}
 
-	if (wouldAcceptToken(TokenKind::IDENTIFIER)) {
-		tokenizer.startSimulation();
-		VariableReferencePtr lexpr = nullptr;
-		try {
-			lexpr = parseExpressionNoOp().asOwning<VariableReference>();
-		} catch (SyntaxError&) {
-			lexpr = nullptr;
-		}
-
-		if (lexpr and wouldAcceptToken("=")) {
-			tokenizer.acceptSimulation();
-			return  parseAssignment(std::move(lexpr));
-
-		} else {
-			tokenizer.discardSimulation();
-			return parseExpression();
-		}
-	}
-
 	auto declaration = tryParseDeclaration();
 	if (declaration) {
 		return declaration;
 	}
 
-	return parseExpression();
+	ExpressionPtr lexpr = nullptr;
+	lexpr = parseExpression();
+
+	if (lexpr and wouldAcceptToken("=")) {
+		return  parseAssignment(std::move(lexpr));
+	} else {
+		return lexpr;
+	}
 }
 
 DeclarationPtr Parser::tryParseDeclaration()
@@ -262,16 +250,23 @@ std::vector<DeclarationPtr> Parser::parseTypeBody()
 
 TypeExprPtr Parser::parseTypeExpr()
 {
+	int pointerDepth = 0;
+	while (tryAcceptToken("&")) {
+		++pointerDepth;
+	}
 	auto name = acceptToken(TokenKind::IDENTIFIER);
 	std::vector<TypeExprPtr> arguments;
 	if (wouldAcceptToken("<")) {
 		arguments = parseTypeArguments();
 	}
+	if (wouldAcceptToken("&")) {
+		throw SyntaxError(cat::SW() << "did you mean to put the '&' in front of the type?", currentToken().pos);
+	}
 
-	return {new TypeExpr{std::move(name.content), false, std::move(arguments), name.pos}};
+	return {new TypeExpr{std::move(name.content), pointerDepth, std::move(arguments), name.pos}};
 }
 
-AssignmentPtr Parser::parseAssignment(VariableReferencePtr&& variableReference)
+AssignmentPtr Parser::parseAssignment(ExpressionPtr&& variableReference)
 {
 	auto pos = acceptToken("=").pos;
 	auto expr = parseExpression();
@@ -319,42 +314,46 @@ ExpressionPtr Parser::parseExpressionNoOp()
 	const auto& token = tokenizer.get();
 	switch (token.kind) {
 	case TokenKind::NUMBER:
-	expr = parseInteger();
-	break;
+		expr = parseInteger();
+		break;
 	case TokenKind::STRING:
-	expr = parseString();
-	break;
+		expr = parseString();
+		break;
 	case TokenKind::BOOLEAN:
-	expr = parseBoolean();
-	break;
+		expr = parseBoolean();
+		break;
 	case TokenKind::NIL:
-	expr = parseNil();
-	break;
+		expr = parseNil();
+		break;
 	case TokenKind::IDENTIFIER:
-	expr = parseVarReferenceOrFunctionCall();
-	break;
+		expr = parseVarReferenceOrFunctionCall();
+		break;
 	case TokenKind::OPERATOR:
-	expr = parseUnaryOperator();
-	break;
+		expr = parseUnaryOperator();
+		break;
 	case TokenKind::SEPARATOR:
-
-	acceptToken("(");
-	expr = parseExpression();
-	acceptToken(")");
-	break;
+		acceptToken("(");
+		expr = parseExpression();
+		acceptToken(")");
+		break;
 	default:
-	throw SyntaxError(cat::SW() << "Invalid token of type " << token.kind << ".", token.pos);
+		throw SyntaxError(cat::SW() << "Invalid token of type " << token.kind << ".", token.pos);
 	}
 
-	while(tryAcceptToken(".")) {
-		auto identifierTk = acceptToken(TokenKind::IDENTIFIER);
+	while (wouldAcceptAnyOfToken({".", "^"})) {
+		auto tkn = acceptToken();
+		if (tkn.content == "^") {
+			// unary postfix operator:
+			expr = {new UnaryOperatorCall{std::move(tkn.content), true, std::move(expr), tkn.pos}};
+		} else if (tkn.content == ".") {
+			auto identifierTk = acceptToken(TokenKind::IDENTIFIER);
 
-
-		if (wouldAcceptToken("(")) {
-			auto arguments = parseTuple();
-			expr =  {new FunctionCall{std::move(identifierTk.content), std::move(expr), std::move(arguments), identifierTk.pos}};
-		} else {
-			expr = MemberAccessPtr({}, std::move(identifierTk.content), std::move(expr), identifierTk.pos);
+			if (wouldAcceptToken("(")) {
+				auto arguments = parseTuple();
+				expr = {new FunctionCall{std::move(identifierTk.content), std::move(expr), std::move(arguments), identifierTk.pos}};
+			} else {
+				expr = MemberAccessPtr({}, std::move(identifierTk.content), std::move(expr), identifierTk.pos);
+			}
 		}
 	}
 
@@ -367,8 +366,21 @@ ExpressionPtr Parser::parseExpression()
 	cat::Stack<Token> operStack;
 	exprStack.push(parseExpressionNoOp());
 
-	while (auto token = tryAcceptToken(TokenKind::OPERATOR)) {
-		operStack.push(token.value());
+	while (wouldAcceptToken(TokenKind::OPERATOR)) {
+		if (currentToken().content == "=") {
+			// Huston, we have an assignment!
+			break;
+		}
+		auto token = acceptToken();
+		try {
+			BinaryOperatorCall::getPrecedence(token.content);
+		}  catch (cat::Exception&) {
+			if (token.content == ":") {
+				throw SyntaxError(cat::SW() << "Invalid operator '" << token.content << "'. Did you want to declare a variable here?", token.pos);
+			}
+			throw SyntaxError(cat::SW() << "Invalid operator '" << token.content << "'.", token.pos);
+		}
+		operStack.push(std::move(token));
 		exprStack.push(parseExpressionNoOp());
 	}
 
@@ -431,8 +443,15 @@ ExpressionPtr Parser::parseVarReferenceOrFunctionCall()
 {
 	auto identifier = acceptToken(TokenKind::IDENTIFIER);
 	if (wouldAcceptToken("(")) {
-		auto arguments = parseTuple();
-		return {new FunctionCall{ std::move(identifier.content), nullptr, std::move(arguments), identifier.pos}};
+		if (identifier.content == "sizeOf") {
+			acceptToken("(");
+			auto argument = parseTypeExpr();
+			acceptToken(")");
+			return {new SizeOfExpression{std::move(argument), identifier.pos}};
+		} else {
+			auto arguments = parseTuple();
+			return {new FunctionCall{ std::move(identifier.content), nullptr, std::move(arguments), identifier.pos}};
+		}
 	} else {
 		return {new VariableReference{ std::move(identifier.content), identifier.pos}};
 	}
@@ -443,11 +462,11 @@ ExpressionPtr Parser::parseVarReferenceOrFunctionCall()
 UnaryOperatorCallPtr Parser::parseUnaryOperator()
 {
 	auto oper = acceptToken(TokenKind::OPERATOR);
-	if (not cat::isAnyOf(oper.content, "-", "+", "!")) {
+	if (not cat::isAnyOf(oper.content, "-", "+", "!", "&")) {
 		throw SyntaxError(cat::SW() << "Expected a unary operator, but found '" << oper.content << "' (which is a binary operator).", oper.pos);
 	}
 	auto operand = parseExpression();
-	return {new UnaryOperatorCall{std::move(oper.content), std::move(operand), oper.pos}};
+	return {new UnaryOperatorCall{std::move(oper.content), false, std::move(operand), oper.pos}};
 }
 
 std::vector<TypeExprPtr> Parser::parseTypeArguments()
@@ -565,6 +584,14 @@ bool Parser::tryAcceptAnyOfToken(const std::initializer_list<cat::String>& strs)
 		return true;
 	}
 	return false;
+}
+
+Token Parser::acceptToken()
+{
+	checkNotEndOfStream("anything"); // throws
+	auto token = currentToken();
+	tokenizer.advance();
+	return token;
 }
 
 Token Parser::acceptToken(TokenKind kind)

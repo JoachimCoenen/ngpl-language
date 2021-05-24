@@ -67,6 +67,7 @@ enum class InstructionID {
 	//INSTRUCTION_FACTORY0(READ_CNTR,   +1, ReadCounter                            ) //              |                                            |
 	// Memory allocation instructions:---------------------------------------------------------------+--------------------------------------------+-------------------------------------------------------
 	INSTRUCTION_FACTORY0(HEAP_ALLOC,     0, false, HeapAlloc                       ) // --           | (Ref) <- (size: Int64)                     | allocates size amount of cells on the heap
+	INSTRUCTION_FACTORY0(HEAP_DEALLOC,  -1, true,  HeapDeAlloc                     ) // --           | () <- (ref: Ref)                           | deallocates a reference
 
 	// Arithmetic instructions:----------------------------------------------------------------------+--------------------------------------------+-------------------------------------------------------
 	INSTRUCTION_FACTORY1(INC_R,          0, false, IncR,             Address, v    ) // --           | (Ref) <- (pos: Ref)                        | moves reference by a fixed amount

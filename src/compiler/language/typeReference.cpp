@@ -5,10 +5,11 @@
 
 namespace ngpl {
 
-TypeReference::TypeReference(TypeCWeakPtr baseType, std::vector<TypeReference>&& arguments, bool isPointer)
+TypeReference::TypeReference(TypeCWeakPtr baseType, std::vector<TypeReference>&& arguments, int pointerDepth, bool isReference)
 	: _baseType(std::move(baseType)),
 	  _arguments(std::move(arguments)),
-	  _isPointer(isPointer)
+	  _pointerDepth(pointerDepth),
+	  _isReference(isReference)
 {}
 
 bool TypeReference::isAssignableTo(const TypeReference& destination) const
@@ -17,7 +18,31 @@ bool TypeReference::isAssignableTo(const TypeReference& destination) const
 		return true;
 	}
 
-	if (this->isPointer() != destination.isPointer()) {
+//	if (this->isReference() and not destination.isReference()) {
+//		return false;
+//	}
+
+	if (destination.baseType()->qualifier() == "" and destination.baseType()->name() == "Any") {
+		int realPtrDepth = this->pointerDepth();
+		if (this->baseType()->isClass()) {
+			realPtrDepth += 1;
+		}
+		if (realPtrDepth >= destination.pointerDepth()) {
+			return true;
+		}
+	}
+
+	if (this->baseType()->qualifier() == "" and this->baseType()->name() == "Any") {
+		int realPtrDepth = destination.pointerDepth();
+		if (destination.baseType()->isClass()) {
+			realPtrDepth += 1;
+		}
+		if (this->pointerDepth() <= realPtrDepth) {
+			return true;
+		} else {
+			return false;
+		}
+	} else if (this->pointerDepth() != destination.pointerDepth()) {
 		return false;
 	}
 
@@ -33,7 +58,7 @@ bool TypeReference::isAssignableTo(const TypeReference& destination) const
 
 uint64_t TypeReference::fixedSize() const
 {
-	if (isPointer()) {
+	if (isRepresentedByReference()) {
 		return 1;
 	} else {
 		return baseType()->fixedSize();
@@ -43,12 +68,15 @@ uint64_t TypeReference::fixedSize() const
 cat::String TypeReference::asCodeString() const
 {
 	cat::SW result;
+	if (pointerDepth()) {
+		result << cat::String(pointerDepth(), '&');
+	}
 	result << _baseType->asCodeString();
 	if (isGeneric()) {
 		result << "<" << cat::range(arguments()).map(LAMBDA(t){ return t.asCodeString(); }).join(", ") << ">";
 	}
-	if (isPointer()) {
-		result << "&";
+	if (isReference()) {
+		result << "%";
 	}
 	return result;
 }
@@ -56,12 +84,15 @@ cat::String TypeReference::asCodeString() const
 cat::String TypeReference::asQualifiedCodeString() const
 {
 	cat::SW result;
+	if (pointerDepth()) {
+		result << cat::String(pointerDepth(), '&');
+	}
 	result << _baseType->asQualifiedCodeString();
 	if (isGeneric()) {
 		result << "<" << cat::range(arguments()).map(LAMBDA(t){ return t.asQualifiedCodeString(); }).join(", ") << ">";
 	}
-	if (isPointer()) {
-		result << "&";
+	if (isReference()) {
+		result << "%";
 	}
 	return result;
 }
@@ -69,10 +100,12 @@ cat::String TypeReference::asQualifiedCodeString() const
 bool operator ==(const TypeReference& lhs, const TypeReference& rhs) {
 	const bool baseTypeEquals = lhs.baseType() == rhs.baseType();
 	const bool argumentsEqual = lhs.arguments() == rhs.arguments();
-	const bool isPointerEquals = lhs.isPointer() == rhs.isPointer();
+	const bool pointerDepthEquals = lhs.pointerDepth() == rhs.pointerDepth();
+	const bool isReferenceEquals = lhs.isReference() == rhs.isReference();
 	return baseTypeEquals and
 			argumentsEqual and
-			isPointerEquals;
+			pointerDepthEquals and
+			isReferenceEquals;
 }
 
 cat::WriterObjectABC& operator +=(cat::WriterObjectABC& s, const TypeReference& v)
@@ -83,7 +116,8 @@ cat::WriterObjectABC& operator +=(cat::WriterObjectABC& s, const TypeReference& 
 					s << "<\"" << v->asQualifiedCodeString() << "\">";
 				}),
 				MEMBER_PAIR_GET(v, arguments),
-				MEMBER_PAIR_GET(v, isPointer)
+				MEMBER_PAIR_GET(v, pointerDepth),
+				MEMBER_PAIR_GET(v, isReference)
 				);
 	formatTupleLike2(s, tuple, {"(", ")"}, cat::_formatFuncKwArg, true);
 	return s;

@@ -1,0 +1,290 @@
+unit list
+
+func __getRef(ptr: &&Any, index: Int) -> &&Any {
+	return ptr + index * sizeOf(&Any)
+}
+
+
+type List = class {
+	var _size: Int
+	var _capacity: Int
+	var _data: &&Any
+	
+	func get(index: Int) -> &Any {
+		return __getRef(self._data, index)^
+	}
+	
+	func set(index: Int, val: &Any) {
+		__getRef(self._data, index)^ = val
+	}
+	
+	ctor (capacity: Int) {
+		// let capacity = 4 
+		self._data = memalloc(capacity * sizeOf(&Any))
+		self._size = 0
+		self._capacity = capacity
+	}
+	
+	ctor (size: Int, fill: &Any) {
+		let capacity = size
+		self._data = memalloc(capacity * sizeOf(&Any))
+		self._size = size
+		self._capacity = capacity
+		var i = 0
+		while i < size do {
+			self.set(i, fill)
+			i = i + 1
+		} 
+	}
+	
+	func add(val: &Any) {
+		if self._size + 1 > self._capacity do { 
+			// double the capacity:
+			let newCapacity = self._capacity * 2
+			let newData: &&Any = memalloc(newCapacity * sizeOf(&Any))
+			
+			let size = self._size
+			var i = 0
+			while i < size do {
+				__getRef(newData, i)^ = __getRef(self._data, i)^
+				i = i + 1
+			}
+			memfree(self._data)
+			self._data = newData
+			self._capacity = newCapacity
+		}
+		
+		__getRef(self._data, self._size)^ = val
+		self._size = self._size + 1
+	}
+	
+	func pop() -> &Any {
+		let oldSize = self._size
+		
+		if oldSize == 0 do {
+			return nil
+		}
+		
+		let newSize = oldSize - 1
+		let poppedVal = self.get(newSize)
+		self._size = newSize
+		
+		if newSize < self._capacity / 2 do { 
+			// halve capacity:
+			let newCapacity = self._capacity / 2
+			let newData: &&Any = memalloc(newCapacity * sizeOf(&Any))
+			
+			var i = 0
+			while i < newSize do {
+				__getRef(newData, i)^ = __getRef(self._data, i)^
+				i = i + 1
+			}
+			memfree(self._data)
+			self._data = newData
+			self._capacity = newCapacity
+		}
+		
+		return poppedVal
+	}
+	
+	func insert(index: Int, val: &Any) {
+		if self._size + 1 > self._capacity do { 
+			// double the capacity:
+			let newCapacity = self._capacity * 2
+			let newData: &&Any = memalloc(newCapacity * sizeOf(&Any))
+			
+			let oldSize = self._size
+			var i = 0
+			while i < index do {
+				__getRef(newData, i)^ = __getRef(self._data, i)^
+				i = i + 1
+			}
+			__getRef(newData, i)^ = val
+			while i < oldSize do {
+				__getRef(newData, i + 1)^ = __getRef(self._data, i)^
+				i = i + 1
+			}
+			
+			memfree(self._data)
+			self._data = newData
+			self._capacity = newCapacity
+		else
+			var i = self._size
+			while i > index do {
+				i = i - 1
+				__getRef(self._data, i + 1)^ = __getRef(self._data, i)^
+			}
+			__getRef(self._data, i)^ = val
+		}
+		self._size = self._size + 1
+	}
+	
+	/*
+	func remove(index: Int) -> &Any {
+		if self._size - 1 < self._capacity / 2 do { 
+			// halve the capacity:
+			let newCapacity = self._capacity / 2
+			let newData = memalloc(newCapacity * sizeOf(&Any))
+			
+			let oldSize = self._size
+			var i = 0
+			while i < index do {
+				(newData + i * sizeOf(&Any))^ = (self._data + i * sizeOf(&Any))^
+				i = i + 1
+			}
+			ASasasdasdasdasdasdasd
+			(newData + i * sizeOf(&Any))^ = val
+			while i < oldSize do {
+				(newData + i * sizeOf(&Any))^ = (self._data + (i+1) * sizeOf(&Any))^
+				i = i + 1
+			}
+			
+			memfree(self._data)
+			self._data = newData
+			self._capacity = newCapacity
+		}
+		self._size = self._size + 1
+	}
+	*/
+	
+	
+}
+
+
+func intListToStr(list: List) -> String {
+	var i = 0
+	var result = "["
+	while i < list._size - 1 do {
+		let v: &&Int = __getRef(list._data, i)
+		result = result + String(v^^)
+		result = result + ", "
+		i = i + 1
+	}
+	if i < list._size do {
+		let v: &&Int = __getRef(list._data, i)
+		result = result + String(v^^)
+	}
+	result = result + "]"
+	return result
+}
+
+
+func printIntListStats(name: String, list: List) {
+	// print(name + ":")
+	// print("      _size = " + String(list._size))
+	// print("  _capacity = " + String(list._capacity))
+	// print("      _data = " + intListToStr(list))
+}
+
+
+let myList = List(1)
+printIntListStats("myList", myList)
+
+var myInt: &Int
+
+myInt = memalloc(sizeOf(Int)) myInt^ = 77
+myList.add(myInt)
+printIntListStats("myList", myList)
+
+myInt = memalloc(sizeOf(Int)) myInt^ = 66
+myList.add(myInt)
+printIntListStats("myList", myList)
+
+myInt = memalloc(sizeOf(Int)) myInt^ = 55
+myList.add(myInt)
+printIntListStats("myList", myList)
+
+myInt = memalloc(sizeOf(Int)) myInt^ = 44
+myList.add(myInt)
+printIntListStats("myList", myList)
+
+myInt = memalloc(sizeOf(Int)) myInt^ = 33
+myList.add(myInt)
+printIntListStats("myList", myList)
+
+myInt = memalloc(sizeOf(Int)) myInt^ = 22
+myList.add(myInt)
+printIntListStats("myList", myList)
+
+myInt = memalloc(sizeOf(Int)) myInt^ = 11
+myList.add(myInt)
+printIntListStats("myList", myList)
+
+myInt = memalloc(sizeOf(Int)) myInt^ = 00
+myList.add(myInt)
+printIntListStats("myList", myList)
+
+// print("")
+// print("")
+// print("POPPING:")
+// print("")
+
+myInt = myList.pop()
+// print("popped " + String(myInt^))
+printIntListStats("myList", myList)
+memfree(myInt)
+
+myInt = myList.pop()
+// print("popped " + String(myInt^))
+printIntListStats("myList", myList)
+memfree(myInt)
+
+myInt = myList.pop()
+// print("popped " + String(myInt^))
+printIntListStats("myList", myList)
+memfree(myInt)
+
+myInt = myList.pop()
+// print("popped " + String(myInt^))
+printIntListStats("myList", myList)
+memfree(myInt)
+
+myInt = myList.pop()
+// print("popped " + String(myInt^))
+printIntListStats("myList", myList)
+memfree(myInt)
+
+myInt = myList.pop()
+// print("popped " + String(myInt^))
+printIntListStats("myList", myList)
+memfree(myInt)
+
+myInt = myList.pop()
+// print("popped " + String(myInt^))
+printIntListStats("myList", myList)
+memfree(myInt)
+
+myInt = myList.pop()
+// print("popped " + String(myInt^))
+printIntListStats("myList", myList)
+memfree(myInt)
+
+// */
+
+let maxIter = 1000000
+var j = 0
+
+while j < maxIter do {
+	j = j + 1
+	
+	let myInt2: &Int = memalloc(sizeOf(Int))
+
+	myInt2^ = j * 11
+	myList.add(myInt2)
+}
+
+//print(intListToStr(myList))
+
+var sum = 0
+j = 0
+while j < maxIter do {
+	j = j + 1
+	
+	let myInt2: &Int = myList.pop()
+	
+	sum = sum + myInt2^
+	memfree(myInt2)
+}
+
+//print("sum: " + String(sum))
+//print(intListToStr(myList))

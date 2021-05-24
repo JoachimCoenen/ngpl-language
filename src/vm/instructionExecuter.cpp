@@ -94,7 +94,7 @@ void InstructionExecuter::executeInstruction()
 	case InstrID::READ_FR: {
 		const auto popedVal = _stack.pop().getValue<Reference>();
 		if (popedVal.source() == nullptr) {
-			throw nullPointerException(instruction);
+			nullPointerException();
 		}
 		auto addr = data.getValue<int64_t>();
 		_stack.push(popedVal.at(addr));
@@ -121,7 +121,7 @@ void InstructionExecuter::executeInstruction()
 		auto reference = _stack.pop().getValue<Reference>();
 		auto val = _stack.pop();
 		if (reference.source() == nullptr) {
-			throw nullPointerException(instruction);
+			nullPointerException();
 		}
 		const auto addr = data.getValue<int64_t>();
 		reference.at(addr) = std::move(val);
@@ -130,7 +130,7 @@ void InstructionExecuter::executeInstruction()
 	case InstrID::WRITE_DR: {
 		auto reference = _stack.pop().getValue<Reference>();
 		if (reference.source() == nullptr) {
-			throw nullPointerException(instruction);
+			nullPointerException();
 		}
 		const auto delta = _stack.pop().getValue<int64_t>();
 		auto val = _stack.pop();
@@ -183,8 +183,14 @@ void InstructionExecuter::executeInstruction()
 
 	case InstrID::HEAP_ALLOC: {
 		auto size = _stack.pop().getValue<int64_t>();
-		auto* allocated = &_heap.emplace_back(size, None());
-		_stack.push(Reference(allocated, 0));
+		auto reference = allocBlock(size);
+		_stack.push(std::move(reference));
+		++_programmCounter;
+	} break;
+
+	case InstrID::HEAP_DEALLOC: {
+		auto reference = _stack.pop().getValue<Reference>();
+		deallocBlock(reference);
 		++_programmCounter;
 	} break;
 
@@ -350,9 +356,63 @@ void InstructionExecuter::run()
 	}
 }
 
-ExecutionError InstructionExecuter::nullPointerException(const Instruction& instruction)
+Reference InstructionExecuter::allocBlock(int64_t size)
 {
-	return  ExecutionError("NullReferenceException!", instruction);
+	Reference result{nullptr};
+
+	// find in _unusedHeap:
+	auto unusedIt = _unusedHeap.find(size);
+	if (unusedIt != _unusedHeap.end()) {
+		if (not unusedIt->second.empty()) {
+			auto allocatedPtr = unusedIt->second.back();
+			unusedIt->second.pop_back();
+			result = Reference(allocatedPtr, 0);
+		}
+	}
+	if (result.source() == nullptr) {
+		// nothing in unusedBlocks found.
+		auto* allocatedPtr = &_heap.emplace_back(size, None());
+		result = Reference(allocatedPtr, 0);
+	}
+	NGPL_ASSERT(result.source() != nullptr);
+
+	// put it in used heap
+	_usedHeap.insert(result.source());
+	return result;
+}
+
+void InstructionExecuter::deallocBlock(Reference reference)
+{
+	if (reference.source() == nullptr) {
+		nullPointerException();
+	}
+
+	if (reference.offset() != 0) {
+		const Instruction& instruction = _instructions[_programmCounter];
+		throw  ExecutionError("Can only deallocate references pointing to the beginning of an allocated block!", instruction);
+	}
+
+	auto& unusedBlocks = _unusedHeap[reference.source()->size()];
+	if (unusedBlocks.contains(reference.source())) {
+		const Instruction& instruction = _instructions[_programmCounter];
+		throw ExecutionError("Trying to deallocate already deallocated block!", instruction);
+	}
+
+	auto usedIt = _usedHeap.find(reference.source());
+	if (usedIt == _usedHeap.end()) {
+		const Instruction& instruction = _instructions[_programmCounter];
+		throw  ExecutionError("Trying to deallocate non heap-allocated block!", instruction);
+	}
+
+	_usedHeap.erase(usedIt);
+	unusedBlocks.insert(reference.source());
+	reference.source()->fill(None());
+}
+
+void InstructionExecuter::nullPointerException()
+{
+	const Instruction& instruction = _instructions[_programmCounter];
+	throw  ExecutionError("NullReferenceException!", instruction);
 }
 
 }

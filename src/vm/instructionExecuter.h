@@ -9,6 +9,9 @@
 #include "cat_stack.h"
 #include "cat_exception.h"
 
+#include "tsl/ordered_set.h"
+
+#include <unordered_map>
 #include <vector>
 
 namespace ngpl {
@@ -52,12 +55,19 @@ public:
 	cat::DynArray<Value>::iterator _stackTopPtr;
 	cat::Stack<uint64_t> _programmCounterStack;
 	cat::SharedPtr<cat::DynArray<Value>> _globals;
+
+	std::unordered_map<size_t, tsl::ordered_set<cat::WeakPtr<cat::DynArray<Value>>>> _unusedHeap;
+	tsl::ordered_set<cat::WeakPtr<cat::DynArray<Value>>> _usedHeap;
 	std::deque<cat::DynArray<Value>> _heap;
 
-	bool _printStacklayout = true;
+	const bool _printStacklayout = false;
 
 protected:
-	ExecutionError nullPointerException(const Instruction&instruction);
+
+	Reference allocBlock(int64_t size);
+	void deallocBlock(Reference reference);
+
+	void nullPointerException();
 };
 
 }

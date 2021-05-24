@@ -265,15 +265,17 @@ struct UnaryOperatorCall : public Expression {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, name),
+			MEMBER_PAIR(*this, isPostfix),
 			MEMBER_PAIR(*this, operand)
 		);
 	}
 	NON_COPY_FORMATTABLE(UnaryOperatorCall, Expression);
 	cat::String name;
+	bool isPostfix;
 	ExpressionPtr operand;
 
-	UnaryOperatorCall(cat::String&& name, ExpressionPtr&& operand, const Position& pos)
-		: Expression(pos), name(std::move(name)), operand(std::move(operand)) {}
+	UnaryOperatorCall(cat::String&& name, bool isPostfix, ExpressionPtr&& operand, const Position& pos)
+		: Expression(pos), name(std::move(name)), isPostfix(isPostfix), operand(std::move(operand)) {}
 };
 
 
@@ -304,19 +306,31 @@ struct TypeExpr : public Node {
 	auto _getLocalMembersTuple() const {
 		return cat::makeCRefTuple(
 			MEMBER_PAIR(*this, name),
-			MEMBER_PAIR(*this, isPointer),
+			MEMBER_PAIR(*this, pointerDepth),
 			MEMBER_PAIR(*this, arguments)
 		);
 	}
 	NON_COPY_FORMATTABLE(TypeExpr, Node);
-	TypeExpr(cat::String&& name, bool isPointer, std::vector<TypeExprPtr>&& arguments, const Position& pos)
-		: Node(pos), name(std::move(name)), isPointer(isPointer), arguments(std::move(arguments)) { };
+	TypeExpr(cat::String&& name, int pointerDepth, std::vector<TypeExprPtr>&& arguments, const Position& pos)
+		: Node(pos), name(std::move(name)), pointerDepth(pointerDepth), arguments(std::move(arguments)) { };
 
 	cat::String name;
-	bool isPointer;
+	int pointerDepth;
 	std::vector<TypeExprPtr> arguments;
 };
 
+
+PTRS_FOR_STRUCT(SizeOfExpression);
+struct SizeOfExpression : public Expression {
+	auto _getLocalMembersTuple() const {
+		return cat::makeCRefTuple();
+	}
+	NON_COPY_FORMATTABLE(SizeOfExpression, Statement);
+	SizeOfExpression(TypeExprPtr&& type, const Position& pos)
+		: Expression(pos), type(std::move(type))
+	{ };
+	TypeExprPtr type;
+};
 
 PTRS_FOR_STRUCT(Declaration);
 struct Declaration : public Statement {
@@ -353,6 +367,26 @@ struct VarDeclaration : public Declaration {
 };
 
 
+PTRS_FOR_STRUCT(PropDeclaration);
+struct PropDeclaration : public Declaration {
+	auto _getLocalMembersTuple() const {
+		return cat::makeCRefTuple(
+			MEMBER_PAIR(*this, type),
+			MEMBER_PAIR(*this, initExpr),
+			MEMBER_PAIR(*this, isConst)
+		);
+	}
+	NON_COPY_FORMATTABLE(PropDeclaration, Declaration);
+	PropDeclaration(cat::String&& name, TypeExprPtr&& type, ExpressionPtr&& initExpr, bool isConst, const Position& pos)
+		: Declaration(std::move(name), pos), type(std::move(type)), initExpr(std::move(initExpr)), isConst(isConst) { };
+
+	TypeExprPtr type;
+	ExpressionPtr initExpr;
+	bool isConst;
+
+};
+
+
 PTRS_FOR_STRUCT(Assignment);
 struct Assignment : public Statement {
 	auto _getLocalMembersTuple() const {
@@ -362,10 +396,10 @@ struct Assignment : public Statement {
 		);
 	}
 	NON_COPY_FORMATTABLE(Assignment, Statement);
-	Assignment(VariableReferencePtr&& variable, ExpressionPtr&& expr, const Position& pos)
+	Assignment(ExpressionPtr&& variable, ExpressionPtr&& expr, const Position& pos)
 		: Statement(pos), variable(std::move(variable)), expr(std::move(expr)) { };
 
-	VariableReferencePtr variable;
+	ExpressionPtr variable;
 	ExpressionPtr expr;
 };
 
@@ -461,6 +495,22 @@ struct ParamDeclaration : public Node {
 
 };
 
+struct DeclModifiers {
+
+	enum DeclModifier {
+		//["overload"] [ "inline" | "strict" "inline" | "message" Const<"int"> ["extern" ( Const<"string"> | Const<"int">) "in" Const<"string">]].
+		INLINE,
+		EXTERN
+	};
+
+	inline bool isInline() const { return _modifiers & DeclModifier::INLINE; }
+	inline bool isExtern() const { return _modifiers & DeclModifier::EXTERN; }
+
+private:
+	DeclModifier _modifiers;
+
+
+};
 
 PTRS_FOR_STRUCT(FuncDeclaration);
 struct FuncDeclaration : public Declaration {
@@ -482,6 +532,7 @@ struct FuncDeclaration : public Declaration {
 	TypeExprPtr returnType;
 	std::vector<ParamDeclarationPtr> parameters;
 	BlockPtr block;
+
 };
 
 PTRS_FOR_STRUCT(CtorDeclaration);

@@ -178,6 +178,33 @@ FunctionBaseCWeakPtr IntermediateCodeBuilder::getFunction(const cat::String& nam
 	}
 }
 
+FunctionBaseCWeakPtr IntermediateCodeBuilder::getMethod(const TypeReference& parentType, const cat::String& name, const CallArgs& args, const Position& pos) const
+{
+	std::vector<FunctionOverloadsCWeakPtr> allOverloads;
+
+	// builtin functions
+	if (FunctionOverloadsCWeakPtr overloads = parentType.scope()->tryGetFunctionOverloads(name)) {
+		if (auto func = overloads->tryGetOverload(args)) {
+			return func;
+		}
+		allOverloads.push_back(overloads);
+	}
+
+	if (allOverloads.empty()) {
+		throw NameError(cat::SW() << "no method named '" << name << "' in " << parentType.asQualifiedCodeString() << ".", pos);
+	} else {
+		auto errorDescr = cat::SW() << "no valid overload for method " << name << "(" << args.asCodeString() << ") in " << parentType.asQualifiedCodeString() << ". ";
+		errorDescr << "Possible overloads are:";
+		errorDescr.incIndent();
+		foreach_c(overload, cat::range(allOverloads).flatmap(LAMBDA(ovlds){ return cat::range(*ovlds); })) {
+			errorDescr += cat::nlIndent;
+			errorDescr += overload->asCodeString();
+		}
+		errorDescr += cat::nlIndent;
+		throw NameError(errorDescr, pos);
+	}
+}
+
 bool IntermediateCodeBuilder::hasFunction(const cat::String& name) const
 {
 	if (builtins.tryGetFunctionOverloads(name)) {
@@ -338,10 +365,10 @@ void IntermediateCodeBuilder::addType(const cat::String& name, TypePtr&& type)
 	return currentScope()->addType(name, std::move(type));
 }
 
-TypeReference IntermediateCodeBuilder::getTypeRef(const cat::String& name, std::vector<TypeReference>&& arguments, bool isPointer, const Position& pos) const
+TypeReference IntermediateCodeBuilder::getTypeRef(const cat::String& name, std::vector<TypeReference>&& arguments, int pointerDepth, const Position& pos) const
 {
 	auto typeRef = getType(name, pos);
-	return TypeReference(typeRef, std::move(arguments), isPointer);
+	return TypeReference(typeRef, std::move(arguments), pointerDepth, false);
 }
 
 InstructionPos IntermediateCodeBuilder::addInstruction(InterInstr&& instr) {
@@ -410,25 +437,37 @@ void IntermediateCodeBuilder::callFunction(const FunctionBaseCWeakPtr& func, con
 	}
 }
 
+TypeReference IntermediateCodeBuilder::dereferenceVariable(const TypeReference& type, const Position& pos)
+{
+	NGPL_COMPILER_ASSERT(type.isPointer(), pos);
+	NGPL_COMPILER_ASSERT(not type.isReference(), pos);
+	NGPL_COMPILER_ASSERT(type.baseType()->name() != "Any" or (type.pointerDepth() > 1), pos);
+
+	auto resultType = type.asPointerLess();
+	readFromHeapD(currentStackTop(), resultType.fixedSize(), 0, pos);
+	return resultType;
+
+}
+
 IndirectAccess IntermediateCodeBuilder::accessMember3(const IndirectAccess& parentAccess, const cat::String& memberName, const Position& memberPos)
 {
 	auto& parentVar = parentAccess.variable();
 	auto& parentType = parentVar.type();
 	auto memberVar = parentType.scope()->tryGetVariable(memberName);
 	if (not memberVar) {
-		throw SyntaxError(cat::SW() << "unknown member '" << memberName << "' in object of type " << parentType.asCodeString() << ".", memberPos);
+		throw SemanticsError(cat::SW() << "unknown member '" << memberName << "' in object of type " << parentType.asCodeString() << ".", memberPos);
 	}
 
 	if (parentVar.referenceMode() == ReferenceMode::HEAP_VAL) {
-		throw SyntaxError(cat::SW() << "HEAP_VAL not yet supported.", memberPos);
+		throw SemanticsError(cat::SW() << "HEAP_VAL not yet supported.", memberPos);
 	}
 
 	if (memberVar->referenceMode() == ReferenceMode::HEAP_VAL) {
-		throw SyntaxError(cat::SW() << "HEAP_VAL not yet supported.", memberPos);
+		throw SemanticsError(cat::SW() << "HEAP_VAL not yet supported.", memberPos);
 	}
 
 	if (parentAccess.isIndirect()) {
-		if (parentVar.isPointer()){
+		if (parentVar.isReferenceOrClass()){
 			auto result = accessMember3IndirectPointer(parentAccess, *memberVar, memberPos);
 			return result;
 		} else {
@@ -436,7 +475,7 @@ IndirectAccess IntermediateCodeBuilder::accessMember3(const IndirectAccess& pare
 			return result;
 		}
 	} else {
-		if (parentVar.isPointer()){
+		if (parentVar.isReferenceOrClass()){
 			auto result = accessMember3Pointer(parentVar, *memberVar, memberPos);
 			return result;
 		} else {
@@ -454,15 +493,15 @@ IndirectAccess IntermediateCodeBuilder::accessMember2(const IndirectAccess& pare
 	auto& parentType = parent.type();
 	auto subMemberVar = parentType.scope()->tryGetVariable(memberName);
 	if (not subMemberVar) {
-		throw SyntaxError(cat::SW() << "unknown member '" << memberName << "' in object of type " << parentType.asCodeString() << ".", memberPos);
+		throw SemanticsError(cat::SW() << "unknown member '" << memberName << "' in object of type " << parentType.asCodeString() << ".", memberPos);
 	}
 
 	if (parent.referenceMode() == ReferenceMode::HEAP_VAL) {
-		throw SyntaxError(cat::SW() << "HEAP_VAL not yet supported.", memberPos);
+		throw SemanticsError(cat::SW() << "HEAP_VAL not yet supported.", memberPos);
 	}
 
 	if (subMemberVar->referenceMode() == ReferenceMode::HEAP_VAL) {
-		throw SyntaxError(cat::SW() << "HEAP_VAL not yet supported.", memberPos);
+		throw SemanticsError(cat::SW() << "HEAP_VAL not yet supported.", memberPos);
 	}
 
 	//declType = subMemberVarType;
@@ -471,7 +510,7 @@ IndirectAccess IntermediateCodeBuilder::accessMember2(const IndirectAccess& pare
 	std::optional<IndirectAccess> variableAccess;
 
 	auto parentAddress = parent.address();
-	if (parent.isPointer()) {
+	if (parent.isReferenceOrClass()) {
 		bool parentIsTemporary = parent.isTemporary();
 		if (parentAccess.isIndirect()) {
 			if (not parentAccess.isTemporary()) {
@@ -484,7 +523,7 @@ IndirectAccess IntermediateCodeBuilder::accessMember2(const IndirectAccess& pare
 			parentIsTemporary = true;
 		}
 
-		if (subMemberVar->isPointer()) {
+		if (subMemberVar->isReferenceOrClass()) {
 			variableAccess = IndirectAccess(
 				parentAddress,
 				parentIsTemporary,
@@ -514,7 +553,7 @@ IndirectAccess IntermediateCodeBuilder::accessMember2(const IndirectAccess& pare
 			);
 		}
 	} else {
-		auto variable = subMemberVar->isPointer()
+		auto variable = subMemberVar->isReferenceOrClass()
 			? Variable(
 				TypeReference{subMemberVar->type()},
 				parentAddress + subMemberVar->address(),
@@ -574,7 +613,7 @@ std::pair<Variable, bool> IntermediateCodeBuilder::accessMember(const VariableCW
 
 	auto subMemberVar = declType.scope()->tryGetVariable(memberName);
 	if (not subMemberVar) {
-		throw SyntaxError(cat::SW() << "unknown member '" << memberName << "' in object of type " << declType.asCodeString() << ".", memberPos);
+		throw SemanticsError(cat::SW() << "unknown member '" << memberName << "' in object of type " << declType.asCodeString() << ".", memberPos);
 	}
 
 	auto subMemberVarType = subMemberVar->type();
@@ -582,10 +621,10 @@ std::pair<Variable, bool> IntermediateCodeBuilder::accessMember(const VariableCW
 
 	switch (refMode) {
 	case ReferenceMode::STACK_VAL:
-		if (declType.isPointer()) {
+		if (declType.isReferenceOrClass()) {
 			switch (subMemberVar->referenceMode()) {
 			case ReferenceMode::STACK_VAL:
-				if (subMemberVarType.isPointer()) {
+				if (subMemberVarType.isReferenceOrClass()) {
 					if (not isTemporary) {
 						addInstruction(Instrs::ReadStackF(frameToStack(relAddr), memberPos));     //ReadStackF might leave a zombie, if value is temporary....
 					}
@@ -622,7 +661,7 @@ std::pair<Variable, bool> IntermediateCodeBuilder::accessMember(const VariableCW
 		} else {
 			switch (subMemberVar->referenceMode()) {
 			case ReferenceMode::STACK_VAL:
-				if (subMemberVarType.isPointer()) {
+				if (subMemberVarType.isReferenceOrClass()) {
 					isReference = true;
 					offset = subMemberVar->fixedOffset();
 					relAddr += subMemberVar->address();
@@ -646,7 +685,7 @@ std::pair<Variable, bool> IntermediateCodeBuilder::accessMember(const VariableCW
 	case ReferenceMode::HEAP_VAL:
 		switch (subMemberVar->referenceMode()) {
 		case ReferenceMode::STACK_VAL:
-			if (subMemberVarType.isPointer()) {
+			if (subMemberVarType.isReferenceOrClass()) {
 				addInstruction(Instrs::ReadFA(frameToHeap(subMemberVar->address()), memberPos));
 				isTemporary = true;
 				isReference = true;
@@ -702,7 +741,7 @@ Variable IntermediateCodeBuilder::readFromVariable2(const IndirectAccess& variab
 	/*
 	switch (variable->referenceMode()) {
 	case ReferenceMode::STACK_VAL:
-		if (/ *variable->isPointer() or* / variableAccess.isIndirect()) {
+		if (/ *variable->isReferenceOrClass() or* / variableAccess.isIndirect()) {
 			readFromHeapD(variable->address(), variable->type().fixedSize(), variable->fixedOffset(), pos);
 			//throw cat::Exception("invalid referenceMode: HEAP_REF cannot be used yet");
 		} else {
@@ -715,7 +754,7 @@ Variable IntermediateCodeBuilder::readFromVariable2(const IndirectAccess& variab
 	}
 
 
-	if (asReference or variable->type().isPointer()) {
+	if (asReference or variable->type().isReferenceOrClass()) {
 		refFromVariable(variable, pos);
 		return Variable(variable->type().asPointer(), currentStackTop(), ReferenceMode::STACK_VAL, false, variable->isConst(), true, 0);
 	} else {
@@ -732,7 +771,7 @@ Variable IntermediateCodeBuilder::refFromVariable(const IndirectAccess& variable
 	auto& variable = variableAccess.variable();
 	if (variableAccess.isIndirect()) {
 		NGPL_COMPILER_ASSERT(variable.referenceMode() == ReferenceMode::STACK_VAL, pos);
-		if (variable.isPointer()) {
+		if (variable.isRepresentedByReference()) { // or maybe isReferenceOrClass() ?
 			if (not variableAccess.isTemporary()) {
 				readFromStackFrameF(variableAccess.address(), 1, pos);
 			} else {
@@ -744,7 +783,7 @@ Variable IntermediateCodeBuilder::refFromVariable(const IndirectAccess& variable
 			addInstruction(Instrs::PushInt(variable.fixedOffset(), pos));
 			addInstruction(Instrs::AddR(pos));
 
-			return Variable(variable.type().asPointer(), currentStackTop(), ReferenceMode::STACK_VAL, false, variable.isConst(), true, 0);
+			return Variable(variable.type().asReference(), currentStackTop(), ReferenceMode::STACK_VAL, false, variable.isConst(), true, 0);
 		} else {
 			if (not variableAccess.isTemporary()) {
 				readFromStackFrameF(variableAccess.address(), 1, pos);
@@ -756,17 +795,19 @@ Variable IntermediateCodeBuilder::refFromVariable(const IndirectAccess& variable
 			addInstruction(Instrs::PushInt(Address(variable.address()), pos));
 			addInstruction(Instrs::AddR(pos));
 
-			return Variable(variable.type().asPointer(), currentStackTop(), ReferenceMode::STACK_VAL, false, variable.isConst(), true, 0);
+			return Variable(variable.type().asReference(), currentStackTop(), ReferenceMode::STACK_VAL, false, variable.isConst(), true, 0);
 		}
 
 	} else {
 		// ?? TODO?
 		switch (variable.referenceMode()) {
 		case ReferenceMode::STACK_VAL: {
-			if (variable.isPointer()) {
+			if (variable.isRepresentedByReference()) { // or maybe isReferenceOrClass() ?
 				// everything 's fine already!
 				if (not variable.isTemporary()) {
 					readFromStackFrameF(variable.address(), 1, pos);
+				} else {
+					NGPL_COMPILER_ASSERT(variable.address() == currentStackTop(), pos);
 				}
 				// NGPL_COMPILER_ASSERT2(variable->isTemporary(), "Cannot handle non temporaries yet", pos);
 				// TODO: maybe copy if not temporary?
@@ -781,7 +822,7 @@ Variable IntermediateCodeBuilder::refFromVariable(const IndirectAccess& variable
 		} break;
 		}
 	}
-	return Variable(variable.type().asPointer(), currentStackTop(), ReferenceMode::STACK_VAL, false, variable.isConst(), true, variable.fixedOffset());
+	return Variable(variable.type().asReference(), currentStackTop(), ReferenceMode::STACK_VAL, false, variable.isConst(), true, variable.fixedOffset());
 
 }
 
@@ -789,7 +830,7 @@ void IntermediateCodeBuilder::readFromVariable(VariableCWeakPtr variable, bool d
 {
 	switch (variable->referenceMode()) {
 	case ReferenceMode::STACK_VAL:
-		if (/*variable->isPointer() or*/ dereference) {
+		if (/*variable->isReferenceOrClass() or*/ dereference) {
 			readFromHeapD(variable->address(), variable->type().fixedSize(), variable->fixedOffset(), pos);
 			//throw cat::Exception("invalid referenceMode: HEAP_REF cannot be used yet");
 		} else {
@@ -816,10 +857,10 @@ void IntermediateCodeBuilder::writeToVariable(const IndirectAccess& variableAcce
 		//readFromHeapD(currentStackTop(), variable.type().fixedSize(), Address(variable.address()), pos);
 	} else {
 		auto& variable = variableAccess.variable();
-		const bool dereference = false;
+		const bool dereference = variable.isReference();
 		switch (variable.referenceMode()) {
 		case ReferenceMode::STACK_VAL:
-			if (/*variable->isPointer() or*/ dereference) {
+			if (/*variable->isReferenceOrClass() or*/ dereference) {
 				auto frameAddress = variable.address();
 		//		if (not variable->isTemporary()) {
 		//			addInstruction(Instrs::ReadStackF(frameToStack(variable->address()), pos));
@@ -827,7 +868,7 @@ void IntermediateCodeBuilder::writeToVariable(const IndirectAccess& variableAcce
 		//		} else {
 		//			stackAddress = variable->address();
 		//		}
-				writeToHeapD(frameAddress, variable.type().fixedSize(), variable.fixedOffset(), variable.isTemporary(), pos);
+				writeToHeapD(frameAddress, variable.type().asValue().fixedSize(), variable.fixedOffset(), variable.isTemporary(), pos);
 				//throw cat::Exception("invalid referenceMode: HEAP_REF cannot be used yet");
 			} else {
 				writeToStackFrameF(variable.address(), variable.fixedSize(), pos);
@@ -838,6 +879,11 @@ void IntermediateCodeBuilder::writeToVariable(const IndirectAccess& variableAcce
 			break;
 		}
 	}
+}
+
+Variable IntermediateCodeBuilder::getTopStackTemporary(const TypeReference& type)
+{
+	return Variable(type, currentStackTop() - type.fixedSize(), ReferenceMode::STACK_VAL, false, false, true, 0);
 }
 
 void IntermediateCodeBuilder::allocateStackTemporary(const TypeReference& type, const Position& pos)
@@ -862,7 +908,7 @@ VariableCWeakPtr IntermediateCodeBuilder::allocateStackVariable(const cat::Strin
 VariableCWeakPtr IntermediateCodeBuilder::allocateHeapVariable(const cat::String& name, TypeReference&& type, bool isConst, bool valuesAlreadyOnStack, const Position& pos)
 {
 	NGPL_COMPILER_ASSERT(isGlobal(), pos);
-	throw SyntaxError(cat::SW() << "global variables not implemented yet.", pos);
+	throw SemanticsError(cat::SW() << "global variables not implemented yet.", pos);
 //	const bool isGlobal = this->isGlobal();
 //	if (isGlobal) {
 //		auto variable = currentScope()->addVariable(name, new Variable(TypeReference{*declType}, 0_fa, ReferenceMode::HEAP_VAL, true, isConst));
@@ -896,7 +942,7 @@ void IntermediateCodeBuilder::allocateReturnVariable(TypeReference&& returnType,
 
 void IntermediateCodeBuilder::defaultInit(const TypeReference& typeRef, const Position& pos)
 {
-	if (typeRef.isPointer()) {
+	if (typeRef.isRepresentedByReference()) {
 		addInstruction(Instrs::PushNullR(pos));
 	} else if (not typeRef.baseType()->isBasic()) {
 		foreach_c(pair, typeRef.scope()->getVariables()) {
@@ -1035,7 +1081,7 @@ void IntermediateCodeBuilder::readFromHeapD(FrameAddr relAddr, Address amount, A
 void IntermediateCodeBuilder::writeToHeapD(FrameAddr relAddr, Address amount, Address fixedOffset, bool isTemprary, const Position& pos)
 {
 	auto stackAddrAddr = frameToStack(relAddr);  // (currentScope()->getFrameSize() + tempsOnStack - relAddr);//+1;
-	NGPL_COMPILER_ASSERT(isTemprary ? stackAddrAddr - (amount-1 +1) == 0_sa : true, pos);
+	NGPL_COMPILER_ASSERT(isTemprary ? stackAddrAddr - (amount-1 +1 + 1) == 0_sa : true, pos);
 	//NGPL_COMPILER_ASSERT(stackAddrAddr == amount, pos); // amount+1 maybe?
 
 	if (amount == 0) {

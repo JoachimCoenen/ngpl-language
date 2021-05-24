@@ -13,7 +13,7 @@ Variable::Variable(TypeReference&& type, FrameAddr address, ReferenceMode refere
 	  _isConst(isConst),
 	  _isTemporary(isTemporary)
 {
-	NGPL_ASSERT(isPointer() ? true : _fixedOffset == 0);
+	NGPL_ASSERT(isRepresentedByReference() ? true : _fixedOffset == 0);
 }
 
 Variable::Variable(const TypeReference& type, FrameAddr address, ReferenceMode referenceMode, bool isOwning, bool isConst, bool isTemporary, Address fixedOffset)
@@ -46,7 +46,7 @@ IndirectAccess::IndirectAccess(FrameAddr address, bool isTemporary, Variable&& v
 	  _isTemporary(isTemporary),
 	  _isIndirect(true)
 {
-	//NGPL_ASSERT2(_variable.isPointer(), "indirect access (with isIndirect==true) requires that the variable is actually a pointer!");
+	//NGPL_ASSERT2(_variable.isReference(), "indirect access (with isIndirect==true) requires that the variable is actually a pointer!");
 }
 
 }

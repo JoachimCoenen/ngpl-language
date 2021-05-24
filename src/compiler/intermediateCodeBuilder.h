@@ -17,10 +17,10 @@ namespace ngpl::compiler {
 using InstructionPos = int64_t;
 
 
-class NameError: public SyntaxError
+class NameError: public SemanticsError
 {
 public:
-	NameError(const cat::String& message, const Position& pos): SyntaxError(message, pos) {}
+	NameError(const cat::String& message, const Position& pos): SemanticsError(message, pos) {}
 };
 
 
@@ -75,6 +75,7 @@ public:
 	static BuiltinFunctionCWeakPtr tryGetBuiltinFunction(const cat::String& name, const CallArgs& args);
 	FunctionBaseCWeakPtr tryGetFunction(const cat::String& name, const CallArgs& args) const;
 	FunctionBaseCWeakPtr getFunction(const cat::String& name, const CallArgs& args, const Position& pos) const;
+	FunctionBaseCWeakPtr getMethod(const TypeReference& parentType, const cat::String& name, const CallArgs& args, const Position& pos) const;
 	bool hasFunction(const cat::String& name) const;
 	bool hasFunction(const cat::String& name, const CallArgs& args) const;
 	bool canAddFunction(const cat::String& name, const FunctionSignature& signature, cat::String& reasonOut) const;
@@ -94,9 +95,9 @@ public:
 
 	void addType(const cat::String& name, TypePtr&& type);
 
-	TypeReference getTypeRef(const cat::String& name, std::vector<TypeReference>&& arguments, bool isPointer, const Position& pos) const;
-	inline TypeReference getTypeRef(const cat::String& name, bool isPointer, const Position& pos) const { return getTypeRef(name, {}, isPointer, pos); };
-	inline TypeReference getTypeRef(const cat::String& name, const Position& pos) const { return getTypeRef(name, false, pos); }
+	TypeReference getTypeRef(const cat::String& name, std::vector<TypeReference>&& arguments, int pointerDepth, const Position& pos) const;
+	inline TypeReference getTypeRef(const cat::String& name, int pointerDepth, const Position& pos) const { return getTypeRef(name, {}, pointerDepth, pos); };
+	inline TypeReference getTypeRef(const cat::String& name, const Position& pos) const { return getTypeRef(name, 0, pos); }
 
 	// instruction generating methods:
 public:
@@ -116,6 +117,8 @@ public:
 	void cleanupStackAndReturn(const Position& pos);
 
 	void callFunction(const FunctionBaseCWeakPtr& func, const Position& pos);
+
+	TypeReference dereferenceVariable(const TypeReference& type, const Position& pos);
 
 	IndirectAccess accessMember3(const IndirectAccess& parentAccess, const cat::String& memberName, const Position& memberPos);
 	IndirectAccess accessMember2(const IndirectAccess& parentAccess, const cat::String& memberName, const Position& memberPos);
@@ -141,6 +144,7 @@ public:
 	void writeToVariable(const IndirectAccess& variableAccess, const Position& pos);
 	inline void writeToVariable(VariableCWeakPtr variable, const Position& pos) { return writeToVariable(IndirectAccess(Variable{*variable}), pos); }
 
+	Variable getTopStackTemporary(const TypeReference& type);
 	void allocateStackTemporary(const TypeReference& type, const Position& pos);
 	VariableCWeakPtr allocateStackVariable(const cat::String& name, TypeReference&& type, bool isConst, bool valuesAlreadyOnStack, const Position& pos);
 	VariableCWeakPtr allocateHeapVariable(const cat::String& name, TypeReference&& type, bool isConst, bool valuesAlreadyOnStack, const Position& pos);

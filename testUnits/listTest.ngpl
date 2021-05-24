@@ -1,0 +1,152 @@
+unit listTest
+
+type IntList = struct {
+	var _size: Int
+	var _data: &Int
+	
+	
+	func get(index: Int) -> Int {
+		let ptr: &Int = self._data + index
+		return ptr^
+	}
+	
+	func set(index: Int, val: Int) {
+		var d: &Int = (self._data + index)
+		d^ = val
+	}
+	
+	
+	ctor (size: Int) {
+		self._data = memalloc(size * sizeOf(Int))
+		self._size = size
+	}
+	
+	ctor (size: Int, fill: Int) {
+		self._data = memalloc(size * sizeOf(Int))
+		self._size = size
+		var i = 0
+		while i < size do {
+			self.set(i, fill)
+			i = i + 1
+		} 
+	}
+	
+	func str() -> String {
+		var i = 0
+		var result = "["
+		while i < self._size - 1 do {
+			result = result + String(self.get(i))
+			result = result + ", "
+			i = i + 1
+		}
+		if i < self._size do {
+			result = result + String(self.get(i))
+		}
+		result = result + "]"
+		return result
+	}
+}
+
+
+// const _monthNames:  = 
+type Date = class {
+	var day: Int
+	var month: Int
+	var year: Int
+	
+	ctor(day: Int, month: Int, year: Int) {
+		self.day = day
+		self.month = month
+		self.year = year
+	}
+	
+	func str() -> String {
+		return String(self.day) + "." + String(self.month)  + "." + String(self.year)
+	}
+}
+
+type Person = struct {
+	var name: String
+	var dob: Date
+	
+	ctor(name: String, dob: Date) {
+		self.name = name
+		self.dob = dob
+	}
+	
+	func str() -> String {
+		return "Person( name:'" + self.name + "', dob: " + self.dob.str()  + ")"
+	}
+}
+
+type PersonList = struct {
+	var _size: Int
+	var _data: &Person
+	
+	
+	func get(index: Int) -> &Person {
+		let ptr: &Person = self._data + index * sizeOf(Person)
+		return ptr
+	}
+	
+	func set(index: Int, val: Person) {
+		var d: &Person = self._data + index * sizeOf(Person)
+		d^ = val
+	}
+	
+	
+	ctor (size: Int) {
+		self._data = memalloc(size * sizeOf(Person))
+		self._size = size
+	}
+	
+	ctor (size: Int, fill: Person) {
+		self._data = memalloc(size * sizeOf(Person))
+		self._size = size
+		var i = 0
+		while i < size do {
+			self.set(i, fill)
+			i = i + 1
+		} 
+	}
+	
+	func str() -> String {
+		var i = 0
+		var result = "["
+		while i < self._size - 1 do {
+			result = result + self.get(i)^.str()
+			result = result + ", "
+			i = i + 1
+		}
+		if i < self._size do {
+			result = result + self.get(i)^.str()
+		}
+		result = result + "]"
+		return result
+	}
+}
+
+
+
+var myFirstList = IntList(5, 77)
+print(myFirstList.str())
+
+
+
+var mySecondList = PersonList(2)
+mySecondList.set(1, Person("Donald Duck", Date(9, 6, 1934)))
+mySecondList.set(0, Person("Jesus", Date(24, 12, -1)))
+print(mySecondList.str())
+
+
+
+
+
+
+
+
+
+
+
+
+

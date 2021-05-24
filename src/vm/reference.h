@@ -20,7 +20,7 @@ private:
 
 public:
 
-	Reference(const SrcPtr& array)
+	explicit Reference(const SrcPtr& array)
 		: Reference(array, 0)
 	{}
 
